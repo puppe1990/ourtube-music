@@ -636,6 +636,16 @@ a {
   }
 }
 
+.link-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--copper);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* The player starts hidden and `display: flex` would otherwise win. */
 [hidden] {
   display: none !important;

@@ -95,9 +95,9 @@ pub fn start(client: Arc<MusicClient>) -> io::Result<AudioProxy> {
             });
         }
     });
-    Ok(AudioProxy {
-        base_url: format!("http://127.0.0.1:{port}"),
-    })
+    let base_url = format!("http://127.0.0.1:{port}");
+    println!("audio proxy: {base_url}");
+    Ok(AudioProxy { base_url })
 }
 
 fn serve(mut connection: TcpStream, client: Arc<MusicClient>) -> io::Result<()> {

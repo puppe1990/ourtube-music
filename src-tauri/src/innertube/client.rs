@@ -14,7 +14,7 @@ use crate::innertube::parsers::{
     parse_stream_with, parse_suggestions,
 };
 
-const HOME_BROWSE_ID: &str = "FEmusic_home";
+pub const HOME_BROWSE_IDS: [&str; 2] = ["FEmusic_home", "FEmusic_explore"];
 
 /// Only /player needs IOS; the browsing endpoints keep the web client so the
 /// payloads match the ones the music web app renders.
@@ -101,8 +101,26 @@ impl MusicClient {
         }
     }
 
+    /// The anonymous home feed (`FEmusic_home`) intermittently answers with no
+    /// shelves; `FEmusic_explore` is the same carousel shape and rarely empty.
     pub fn home(&self) -> Result<Vec<Shelf>, String> {
-        let payload = self.call(BROWSE, request_body(BROWSE, json!({ "browseId": HOME_BROWSE_ID })))?;
+        let mut last_error = None;
+        for browse_id in HOME_BROWSE_IDS {
+            match self.browse(browse_id) {
+                Ok(shelves) if !shelves.is_empty() => return Ok(shelves),
+                Ok(_) => continue,
+                Err(error) => last_error = Some(error),
+            }
+        }
+        match last_error {
+            Some(error) => Err(error),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    fn browse(&self, browse_id: &str) -> Result<Vec<Shelf>, String> {
+        let body = request_body(BROWSE, json!({ "browseId": browse_id }));
+        let payload = self.call(BROWSE, body)?;
         parse_home_shelves(&payload)
     }
 

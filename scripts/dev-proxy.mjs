@@ -76,7 +76,18 @@ async function proxyCommand(command, request, response) {
     }
     // The desktop shell parses in Rust; the preview parses here so both answer
     // with the same shapes (see src/devParsers.mjs).
-    const parsed = parseCommand(command, JSON.parse(payload))
+    let parsed = parseCommand(command, JSON.parse(payload))
+    // Anonymous FEmusic_home is flaky; mirror the Rust fallback to explore.
+    if (command === 'music_home' && parsed.length === 0) {
+      const explore = upstreamRequest('music_home', args)
+      explore.body.browseId = 'FEmusic_explore'
+      const retry = await fetch(upstream.url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'user-agent': USER_AGENT },
+        body: JSON.stringify(explore.body),
+      })
+      parsed = parseCommand('music_home', await retry.json())
+    }
     response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
     response.end(JSON.stringify(parsed))
   } catch (error) {

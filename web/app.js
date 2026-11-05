@@ -90,7 +90,9 @@ function shelvesHtml(shelves) {
 
 function renderHome() {
   if (!state.shelves.length) {
-    dom.main.innerHTML = '<p class="empty">Carregando a home do YouTube Music…</p>'
+    dom.main.innerHTML = state.homeLoaded
+      ? `<div class="empty">A home veio vazia agora. <button type="button" class="link-button" data-retry-home>Tentar de novo</button></div>`
+      : '<p class="empty">Carregando a home do YouTube Music…</p>'
     return
   }
   dom.main.innerHTML = shelvesHtml(state.shelves)
@@ -249,8 +251,10 @@ function isHomeRoute() {
 async function loadHome() {
   try {
     state.shelves = await api.home()
+    state.homeLoaded = true
     if (isHomeRoute()) renderHome()
   } catch (error) {
+    state.homeLoaded = true
     if (!isHomeRoute()) return
     dom.main.innerHTML = `<p class="empty">Falha ao carregar a home: ${escapeHtml(error.message)}</p>`
   }
@@ -348,6 +352,12 @@ function wireEvents() {
   })
 
   dom.main.addEventListener('click', (event) => {
+    if (event.target.closest('[data-retry-home]')) {
+      state.homeLoaded = false
+      renderHome()
+      loadHome()
+      return
+    }
     const row = event.target.closest('[data-video-id]')
     if (!row) return
     location.hash = `#/watch/${row.dataset.videoId}`
@@ -414,6 +424,16 @@ async function boot() {
   } catch (_error) {
     state.recent = []
   }
+  // Normaliza o tema: o webview pode herdar um valor antigo de localStorage.
+  const savedTheme = (() => {
+    try {
+      return localStorage.getItem('ourtube-theme')
+    } catch (_error) {
+      return null
+    }
+  })()
+  document.documentElement.dataset.theme = savedTheme === 'light' ? 'light' : 'dark'
+
   renderRecent()
   wireEvents()
   route()
