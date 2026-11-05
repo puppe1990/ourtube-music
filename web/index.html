@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OurTube Music</title>
+    <meta
+      name="description"
+      content="Leitor desktop dos endpoints internos do YouTube Music (Innertube)."
+    />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+    <script>
+      try {
+        const saved = localStorage.getItem('ourtube-theme')
+        if (saved === 'light') document.documentElement.dataset.theme = 'light'
+      } catch (_error) {}
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <a class="brand" href="#/" aria-label="OurTube Music">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+              <circle cx="12" cy="12" r="9"></circle>
+              <path d="M10 8.5l6 3.5-6 3.5z" fill="currentColor" stroke="none"></path>
+            </svg>
+          </span>
+          <span class="brand-name">OurTube <em>Music</em></span>
+        </a>
+
+        <form id="search" class="search" autocomplete="off" role="search">
+          <input
+            id="search-input"
+            name="q"
+            type="search"
+            placeholder="Buscar música, artista, álbum…"
+            aria-label="Buscar no YouTube Music"
+          />
+          <ul id="suggestions" class="suggestions" hidden></ul>
+          <button type="submit" class="search-submit" aria-label="Buscar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <circle cx="11" cy="11" r="6.5"></circle>
+              <path d="M16 16l4.5 4.5"></path>
+            </svg>
+          </button>
+        </form>
+
+        <div class="topbar-actions">
+          <span id="account" class="account">visitante</span>
+          <button id="theme-toggle" class="icon-button" type="button" aria-label="Alternar tema">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+              <circle cx="12" cy="12" r="4"></circle>
+              <path
+                d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
+              ></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="layout">
+        <aside class="rail">
+          <nav id="guide" class="guide" aria-label="Navegação do YouTube Music"></nav>
+          <section class="recent">
+            <h2>Buscas recentes</h2>
+            <ul id="recent"></ul>
+          </section>
+          <p class="rail-note">
+            Endpoints Innertube mapeados em 05/11/2026: <code>browse</code>, <code>search</code>,
+            <code>next</code>, <code>player</code>, <code>guide</code>, <code>account_menu</code>,
+            <code>get_search_suggestions</code>.
+          </p>
+        </aside>
+
+        <main id="main" class="main" aria-live="polite"></main>
+      </div>
+
+      <footer id="player" class="player" hidden>
+        <div class="now">
+          <img id="player-art" class="now-art" alt="" />
+          <div class="now-text">
+            <strong id="player-title">—</strong>
+            <span id="player-artist">—</span>
+            <span id="player-meta" class="now-meta"></span>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button id="play-pause" class="play-button" type="button" aria-label="Tocar ou pausar">
+            <svg id="icon-play" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5l12 7-12 7z"></path>
+            </svg>
+            <svg id="icon-pause" viewBox="0 0 24 24" fill="currentColor" hidden>
+              <path d="M7 5h4v14H7zM13 5h4v14h-4z"></path>
+            </svg>
+          </button>
+          <button id="next" class="icon-button" type="button" aria-label="Próxima">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6 5l9 7-9 7zM17 5h2v14h-2z"></path>
+            </svg>
+          </button>
+          <span id="elapsed" class="time">0:00</span>
+          <input
+            id="progress"
+            class="progress"
+            type="range"
+            min="0"
+            max="1000"
+            value="0"
+            aria-label="Progresso"
+          />
+          <span id="total" class="time">0:00</span>
+          <span id="status" class="status" role="status"></span>
+        </div>
+
+        <audio id="audio" preload="none"></audio>
+      </footer>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
