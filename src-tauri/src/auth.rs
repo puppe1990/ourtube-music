@@ -15,7 +15,7 @@ pub const ORIGIN: &str = "https://music.youtube.com";
 /// Only the YouTube/Google session cookies are forwarded. Sending the whole
 /// jar — especially the `__Host-*` entries — makes Innertube treat the request
 /// as anonymous (probed 2026-11-05).
-pub const AUTH_COOKIE_NAMES: [&str; 12] = [
+pub const AUTH_COOKIE_NAMES: [&str; 19] = [
     "SID",
     "HSID",
     "SSID",
@@ -25,9 +25,18 @@ pub const AUTH_COOKIE_NAMES: [&str; 12] = [
     "__Secure-3PSID",
     "__Secure-1PAPISID",
     "__Secure-3PAPISID",
+    "__Secure-1PSIDTS",
+    "__Secure-3PSIDTS",
     "SIDCC",
     "__Secure-1PSIDCC",
     "__Secure-3PSIDCC",
+    // Player/visitor state: without it /youtubei/v1/player answers
+    // LOGIN_REQUIRED ("confirm you're not a bot") even when browse works.
+    "VISITOR_INFO1_LIVE",
+    "VISITOR_PRIVACY_METADATA",
+    "PREF",
+    "YSC",
+    "__Secure-YEC",
 ];
 pub const CREDENTIALS_FILE: &str = "credentials.json";
 

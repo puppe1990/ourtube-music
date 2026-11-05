@@ -9,6 +9,7 @@ export const COMMANDS = {
   audio: 'music_audio',
   authBrowserLogin: 'auth_browser_login',
   authCheck: 'auth_check',
+  authRefresh: 'auth_refresh',
   authState: 'auth_state',
   authLogout: 'auth_logout',
 }
@@ -22,10 +23,11 @@ export function createMusicApi(invoke) {
     suggestions: (input) => invoke(COMMANDS.suggestions, { input }),
     guide: () => invoke(COMMANDS.guide),
     account: () => invoke(COMMANDS.account),
-    audio: (videoId, container) =>
-      invoke(COMMANDS.audio, container ? { videoId, container } : { videoId }),
+    audio: (videoId, variant) =>
+      invoke(COMMANDS.audio, variant ? { videoId, variant } : { videoId }),
     authBrowserLogin: () => invoke(COMMANDS.authBrowserLogin),
     authCheck: () => invoke(COMMANDS.authCheck),
+    authRefresh: () => invoke(COMMANDS.authRefresh),
     authState: () => invoke(COMMANDS.authState),
     authLogout: () => invoke(COMMANDS.authLogout),
   }

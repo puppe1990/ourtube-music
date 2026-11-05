@@ -273,7 +273,7 @@ async function play(track, queue) {
       api.audio(track.videoId),
     ])
     state.audioBase = audioSrc
-    state.containerFallback = false
+    state.variantFallback = false
     dom.audio.src = audioSrc
     dom.audio.load()
     await dom.audio.play().catch(() => setStatus('clique no play', 'info'))
@@ -603,12 +603,12 @@ function wireEvents() {
     dom.iconPause.hidden = true
   })
   dom.audio.addEventListener('error', () => {
-    if (!state.audioBase || state.containerFallback) {
+    if (!state.audioBase || state.variantFallback) {
       setStatus('áudio indisponível para esta faixa', 'error')
       return
     }
-    state.containerFallback = true
-    dom.audio.src = `${state.audioBase}?container=webm`
+    state.variantFallback = true
+    dom.audio.src = `${state.audioBase}?variant=webm`
     dom.audio.load()
     dom.audio.play().catch(() => setStatus('áudio indisponível para esta faixa', 'error'))
   })

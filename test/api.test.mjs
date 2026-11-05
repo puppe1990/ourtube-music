@@ -22,6 +22,7 @@ test('every mapped endpoint has a command', () => {
     'authBrowserLogin',
     'authCheck',
     'authLogout',
+    'authRefresh',
     'authState',
     'guide',
     'home',
@@ -60,11 +61,11 @@ test('audio resolves the local proxy url for a video', async () => {
   const { calls, invoke } = recordingInvoke()
 
   await createMusicApi(invoke).audio(videoId)
-  await createMusicApi(invoke).audio(videoId, 'webm')
+  await createMusicApi(invoke).audio(videoId, 'muxed')
 
   assert.deepEqual(calls, [
     { command: 'music_audio', args: { videoId } },
-    { command: 'music_audio', args: { videoId, container: 'webm' } },
+    { command: 'music_audio', args: { videoId, variant: 'muxed' } },
   ])
 })
 

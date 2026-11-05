@@ -202,6 +202,43 @@ fn stream_prefers_mp4_audio_then_the_highest_bitrate() {
 }
 
 #[test]
+fn stream_exposes_the_progressive_muxed_format_as_fallback() {
+    let payload = json!({
+        "playabilityStatus": { "status": "OK" },
+        "videoDetails": { "videoId": "vid-x", "title": "Song", "author": "Artist", "lengthSeconds": "180" },
+        "streamingData": {
+            "formats": [
+                { "itag": 18, "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"", "bitrate": 300000, "url": "https://cdn/muxed" }
+            ],
+            "adaptiveFormats": [
+                { "itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 130000, "url": "https://cdn/audio" }
+            ]
+        }
+    });
+
+    let stream = parse_stream(&payload).expect("parse stream");
+
+    assert_eq!(stream.audio_url, "https://cdn/audio");
+    assert_eq!(stream.fallback_url, "https://cdn/muxed");
+    assert_eq!(stream.fallback_itag, 18);
+}
+
+#[test]
+fn stream_without_muxed_format_has_no_fallback() {
+    let payload = json!({
+        "playabilityStatus": { "status": "OK" },
+        "videoDetails": { "videoId": "vid-x" },
+        "streamingData": { "adaptiveFormats": [
+            { "itag": 140, "mimeType": "audio/mp4", "bitrate": 130000, "url": "https://cdn/audio" }
+        ] }
+    });
+
+    let stream = parse_stream(&payload).expect("parse stream");
+
+    assert!(stream.fallback_url.is_empty());
+}
+
+#[test]
 fn stream_rejects_payload_without_audio_format() {
     let payload = json!({
         "playabilityStatus": { "status": "OK" },

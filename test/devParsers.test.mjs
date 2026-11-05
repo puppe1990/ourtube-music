@@ -201,6 +201,24 @@ test('stream prefers MP4 audio over the higher-bitrate Opus/WebM', () => {
   assert.equal(stream.duration, 213)
 })
 
+test('stream can pick the progressive muxed format on demand', () => {
+  const payload = {
+    playabilityStatus: { status: 'OK' },
+    videoDetails: { videoId: 'vid-x', lengthSeconds: '180' },
+    streamingData: {
+      formats: [{ itag: 18, mimeType: 'video/mp4', bitrate: 300000, url: 'https://cdn/muxed' }],
+      adaptiveFormats: [
+        { itag: 140, mimeType: 'audio/mp4', bitrate: 130000, url: 'https://cdn/audio' },
+      ],
+    },
+  }
+
+  const stream = parseStream(payload, 'muxed')
+
+  assert.equal(stream.audioUrl, 'https://cdn/muxed')
+  assert.equal(stream.itag, 18)
+})
+
 test('stream rejects an unplayable payload with the reason', () => {
   const payload = {
     playabilityStatus: { status: 'UNPLAYABLE', reason: 'Video unavailable' },

@@ -32,7 +32,7 @@ test('queue reads the watch-next panel', () => {
   assert.equal(request.body.videoId, videoId)
 })
 
-test('stream pins the IOS client because WEB_REMIX is unplayable', () => {
+test('stream starts with the iOS client (no bot check)', () => {
   const videoId = faker.string.alphanumeric(11)
 
   const request = upstreamRequest('music_stream', { videoId })

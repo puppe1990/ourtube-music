@@ -1,29 +1,34 @@
-use ourtube_music::audio_proxy::{audio_path, container_from_query, parse_request_line, range_header};
+use ourtube_music::audio_proxy::{audio_path, parse_request_line, range_header, variant_from_query};
 
 #[test]
-fn audio_path_defaults_to_mp4_and_can_ask_for_webm() {
+fn audio_path_defaults_to_adaptive_and_can_ask_for_other_variants() {
     assert_eq!(audio_path("dQw4w9WgXcQ", None), "/audio/dQw4w9WgXcQ");
     assert_eq!(
         audio_path("dQw4w9WgXcQ", Some("webm")),
-        "/audio/dQw4w9WgXcQ?container=webm"
+        "/audio/dQw4w9WgXcQ?variant=webm"
+    );
+    assert_eq!(
+        audio_path("dQw4w9WgXcQ", Some("muxed")),
+        "/audio/dQw4w9WgXcQ?variant=muxed"
     );
 }
 
 #[test]
-fn container_query_ignores_unknown_values() {
-    assert_eq!(container_from_query(Some("webm")), Some("webm"));
-    assert_eq!(container_from_query(Some("ogg")), None);
-    assert_eq!(container_from_query(None), None);
+fn variant_query_ignores_unknown_values() {
+    assert_eq!(variant_from_query(Some("webm")), Some("webm"));
+    assert_eq!(variant_from_query(Some("muxed")), Some("muxed"));
+    assert_eq!(variant_from_query(Some("ogg")), None);
+    assert_eq!(variant_from_query(None), None);
 }
 
 #[test]
 fn request_line_yields_video_id_and_container() {
-    let line = "GET /audio/abc123?container=webm HTTP/1.1";
+    let line = "GET /audio/abc123?variant=muxed HTTP/1.1";
 
     let request = parse_request_line(line).expect("parse request line");
 
     assert_eq!(request.video_id, "abc123");
-    assert_eq!(request.container, Some("webm".to_string()));
+    assert_eq!(request.variant, Some("muxed".to_string()));
 }
 
 #[test]

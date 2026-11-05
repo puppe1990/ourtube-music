@@ -28,8 +28,19 @@ fn browsing_endpoints_use_the_web_remix_client() {
 }
 
 #[test]
-fn player_uses_the_ios_client_because_web_remix_is_unplayable() {
+fn player_starts_with_the_ios_client() {
+    // IOS answers without the bot check; the client retries ANDROID_VR when it
+    // does not (see MusicClient::stream_variant).
     assert_eq!(client_kind_for(PLAYER), ClientKind::Ios);
+}
+
+#[test]
+fn vr_body_can_still_be_built_explicitly() {
+    use ourtube_music::innertube::client::request_body_for;
+
+    let body = request_body_for(ClientKind::AndroidVr, json!({ "videoId": "vid" }));
+
+    assert_eq!(body["context"]["client"]["clientName"], "ANDROID_VR");
 }
 
 #[test]
@@ -43,7 +54,7 @@ fn web_remix_body_carries_the_captured_context() {
 }
 
 #[test]
-fn ios_body_carries_the_device_model() {
+fn player_body_carries_the_ios_context() {
     let body = request_body(PLAYER, json!({ "videoId": "dQw4w9WgXcQ" }));
 
     assert_eq!(body["context"]["client"]["clientName"], "IOS");

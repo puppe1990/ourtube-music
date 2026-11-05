@@ -35,6 +35,16 @@ Pre-commit: lint-staged + `npm test`. CI: `.github/workflows/ci.yml` (Node + Rus
 WEB_REMIX responde `UNPLAYABLE` no `/player`; o cliente IOS devolve URL direta do
 `googlevideo.com` (sondado em 05/11/2026). Não troque isso sem testar o `/player` de verdade.
 
+## Player
+
+- O `/player` tenta IOS e cai para ANDROID_VR (que também traz o MP4 progressivo
+  itag 18 como fallback).
+- O proxy baixa a faixa inteira em janelas de 256/64/16 KB com pausa de 120 ms e
+  backoff em 403 (o CDN limita rajadas e recusa spans > ~256 KB), guarda em
+  memória por 15 min e serve `Range` local — o `<audio>` toca e busca normal.
+- Faixas ainda podem voltar 403 do CDN: sem PO token (`pot`) do BotGuard o
+  YouTube limita parte do catálogo. A UI mostra "áudio indisponível" nesses casos.
+
 ## Login
 
 - Device flow OAuth (`src-tauri/src/auth.rs`): `device/code` → código na tela →

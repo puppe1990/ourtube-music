@@ -73,6 +73,17 @@ pub fn parse_stream_with(payload: &Value, container: Option<&str>) -> Result<Str
         duration: player.video_details.length_seconds.parse().unwrap_or_default(),
         ..Stream::default()
     };
+    // Progressive MP4 wins the fallback slot: a fragmented DASH segment cannot
+    // be fed to a bare <audio> element.
+    for format in &player.streaming_data.formats {
+        if format.url.is_empty() || !format.mime_type.starts_with("video/mp4") {
+            continue;
+        }
+        stream.fallback_url = format.url.clone();
+        stream.fallback_mime = format.mime_type.clone();
+        stream.fallback_itag = format.itag;
+        break;
+    }
     for format in player.streaming_data.adaptive_formats {
         if !format.mime_type.starts_with("audio/") || format.url.is_empty() {
             continue;
@@ -168,6 +179,8 @@ struct VideoDetails {
 struct StreamingData {
     #[serde(default)]
     adaptive_formats: Vec<Format>,
+    #[serde(default)]
+    formats: Vec<Format>,
 }
 
 #[derive(Deserialize)]

@@ -29,6 +29,11 @@ pub struct Stream {
     pub mime_type: String,
     pub itag: u32,
     pub bitrate: u64,
+    /// Progressive muxed MP4 (itag 18): plays in any webview when the
+    /// fragmented adaptive stream is rejected.
+    pub fallback_url: String,
+    pub fallback_mime: String,
+    pub fallback_itag: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

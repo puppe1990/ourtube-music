@@ -129,41 +129,67 @@ pub async fn auth_browser_login(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|error| format!("login window channel: {error}"))?
 }
 
-/// Reads the login window cookies; `authorized` means SAPISID landed and the
-/// credentials were persisted.
+/// Reads the shared cookie store (the webview keeps the Google session even
+/// after the login window closes) and persists what the API needs.
+fn collect_cookies(app: &tauri::AppHandle, session: &AuthSession) -> Result<String, String> {
+    use tauri::Manager;
+    let Some(window) = app
+        .get_webview_window(LOGIN_WINDOW)
+        .or_else(|| app.get_webview_window("main"))
+    else {
+        return Ok("no_window".to_string());
+    };
+    let cookies = window
+        .cookies()
+        .map_err(|error| format!("read cookies: {error}"))?;
+    let pairs: Vec<(String, String)> = cookies
+        .iter()
+        .map(|cookie| (cookie.name().to_string(), cookie.value().to_string()))
+        .collect();
+    println!(
+        "auth cookies: {} names={:?}",
+        pairs.len(),
+        pairs.iter().map(|(name, _)| name.as_str()).take(24).collect::<Vec<_>>()
+    );
+    match auth::extract_cookie_auth(&pairs) {
+        Some(credentials) => {
+            session.store(credentials)?;
+            Ok("authorized".to_string())
+        }
+        None => Ok("pending".to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn auth_refresh(
+    app: tauri::AppHandle,
+    session: tauri::State<'_, Arc<AuthSession>>,
+) -> Result<String, String> {
+    let session = Arc::clone(session.inner());
+    collect_cookies(&app, &session)
+}
+
 #[tauri::command]
 pub async fn auth_check(
     app: tauri::AppHandle,
     session: tauri::State<'_, Arc<AuthSession>>,
 ) -> Result<String, String> {
     use tauri::Manager;
-    let Some(window) = app.get_webview_window(LOGIN_WINDOW) else {
+    if app.get_webview_window(LOGIN_WINDOW).is_none() {
         return Ok(if session.credentials().is_some() {
             "authorized".to_string()
         } else {
             "no_window".to_string()
         });
-    };
-    let cookies = window
-        .cookies()
-        .map_err(|error| format!("read login cookies: {error}"))?;
-    let pairs: Vec<(String, String)> = cookies
-        .iter()
-        .map(|cookie| (cookie.name().to_string(), cookie.value().to_string()))
-        .collect();
-    println!(
-        "auth check: {} cookies, has SAPISID={}",
-        pairs.len(),
-        pairs.iter().any(|(name, _)| name == "SAPISID" || name == "__Secure-3PAPISID")
-    );
-    match auth::extract_cookie_auth(&pairs) {
-        Some(credentials) => {
-            session.store(credentials)?;
-            let _ = window.close();
-            Ok("authorized".to_string())
-        }
-        None => Ok("pending".to_string()),
     }
+    let session = Arc::clone(session.inner());
+    let result = collect_cookies(&app, &session)?;
+    if result == "authorized" {
+        if let Some(window) = app.get_webview_window(LOGIN_WINDOW) {
+            let _ = window.close();
+        }
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -196,10 +222,14 @@ pub async fn auth_logout(session: tauri::State<'_, Arc<AuthSession>>) -> Result<
 /// The webview points `<audio>` here; the localhost proxy resolves a fresh
 /// googlevideo URL and forwards Range requests.
 #[tauri::command]
-pub async fn music_audio(proxy: tauri::State<'_, AudioProxy>, video_id: String, container: Option<String>) -> Result<String, String> {
+pub async fn music_audio(
+    proxy: tauri::State<'_, AudioProxy>,
+    video_id: String,
+    variant: Option<String>,
+) -> Result<String, String> {
     Ok(format!(
         "{}{}",
         proxy.base_url(),
-        audio_path(&video_id, container.as_deref())
+        audio_path(&video_id, variant.as_deref())
     ))
 }

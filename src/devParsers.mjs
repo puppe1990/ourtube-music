@@ -138,7 +138,8 @@ export function parseQueue(payload) {
     }))
 }
 
-export function parseStream(payload, container = 'mp4') {
+export function parseStream(payload, variant) {
+  const container = variant === 'webm' ? 'webm' : 'mp4'
   const status = payload?.playabilityStatus?.status
   const videoId = payload?.videoDetails?.videoId ?? ''
   if (status && status !== 'OK') {
@@ -155,16 +156,20 @@ export function parseStream(payload, container = 'mp4') {
   const best = formats.reduce((winner, format) =>
     audioScore(format, container) > audioScore(winner, container) ? format : winner,
   )
+  // Progressive MP4 (itag 18) is what a bare <audio> can always decode.
+  const [muxed] = payload?.streamingData?.formats ?? []
+  const chosen = variant === 'muxed' && muxed?.url ? muxed : best
 
   return {
     videoId,
     title: payload?.videoDetails?.title ?? '',
     author: payload?.videoDetails?.author ?? '',
     duration: Number(payload?.videoDetails?.lengthSeconds ?? 0),
-    audioUrl: best.url,
-    mimeType: best.mimeType,
-    itag: best.itag,
-    bitrate: best.bitrate,
+    audioUrl: chosen.url,
+    mimeType: chosen.mimeType,
+    itag: chosen.itag,
+    bitrate: chosen.bitrate ?? 0,
+    fallbackUrl: muxed?.url ?? '',
   }
 }
 
@@ -201,6 +206,6 @@ const PARSERS = {
 export function parseCommand(command, payload, options = {}) {
   const parser = PARSERS[command]
   if (!parser) throw new Error(`unknown music command "${command}"`)
-  if (command === 'music_stream') return parser(payload, options.container)
+  if (command === 'music_stream') return parser(payload, options.variant)
   return parser(payload)
 }

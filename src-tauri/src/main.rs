@@ -29,6 +29,7 @@ fn main() {
             ourtube_music::commands::music_audio,
             ourtube_music::commands::auth_browser_login,
             ourtube_music::commands::auth_check,
+            ourtube_music::commands::auth_refresh,
             ourtube_music::commands::auth_state,
             ourtube_music::commands::auth_logout
         ])
