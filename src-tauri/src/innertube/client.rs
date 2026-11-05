@@ -8,6 +8,7 @@ use crate::innertube::endpoints::{
     IOS_DEVICE_MODEL, IOS_OS_VERSION, LOCALE, NEXT, PLAYER, REGION, SEARCH, SUGGESTIONS,
     USER_AGENT, WEB_CLIENT_NAME, WEB_CLIENT_VERSION,
 };
+use crate::auth::{CookieAuth, ORIGIN};
 use crate::innertube::models::{Account, GuideEntry, Shelf, Stream, Track};
 use crate::innertube::parsers::{
     parse_account, parse_guide, parse_home_shelves, parse_queue, parse_search_results,
@@ -77,7 +78,7 @@ pub struct AudioResponse {
 pub struct MusicClient {
     base_url: String,
     http: reqwest::blocking::Client,
-    token: Option<String>,
+    credentials: Option<CookieAuth>,
 }
 
 impl Default for MusicClient {
@@ -99,14 +100,14 @@ impl MusicClient {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             http,
-            token: None,
+            credentials: None,
         }
     }
 
-    /// Signed-in calls send `Authorization: Bearer` plus `X-Goog-AuthUser: 0`,
-    /// the same pair ytmusicapi uses with an OAuth token.
-    pub fn with_token(mut self, token: Option<String>) -> Self {
-        self.token = token;
+    /// Signed-in calls carry the browser cookies plus the `SAPISIDHASH`
+    /// signature the music web app sends.
+    pub fn with_cookies(mut self, credentials: Option<CookieAuth>) -> Self {
+        self.credentials = credentials;
         self
     }
 
@@ -214,10 +215,16 @@ impl MusicClient {
             .header("content-type", "application/json")
             .header("user-agent", USER_AGENT)
             .json(&body);
-        if let Some(token) = &self.token {
+        if let Some(credentials) = &self.credentials {
             request = request
-                .header("authorization", crate::auth::auth_header(token))
-                .header("x-goog-authuser", "0");
+                .header("cookie", credentials.cookies.clone())
+                .header(
+                    "authorization",
+                    credentials.authorization(crate::session::now_epoch()),
+                )
+                .header("x-goog-authuser", "0")
+                .header("origin", ORIGIN)
+                .header("referer", format!("{ORIGIN}/"));
         }
         let response = request
             .send()

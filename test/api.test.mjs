@@ -19,13 +19,12 @@ test('every mapped endpoint has a command', () => {
   assert.deepEqual(Object.keys(COMMANDS).sort(), [
     'account',
     'audio',
+    'authBrowserLogin',
+    'authCheck',
     'authLogout',
-    'authPoll',
-    'authStart',
     'authState',
     'guide',
     'home',
-    'openExternal',
     'queue',
     'search',
     'stream',
@@ -69,23 +68,17 @@ test('audio resolves the local proxy url for a video', async () => {
   ])
 })
 
-test('openExternal sends the url to the shell', async () => {
+test('browser login and check need no arguments', async () => {
   const { calls, invoke } = recordingInvoke()
+  const api = createMusicApi(invoke)
 
-  await createMusicApi(invoke).openExternal('https://www.google.com/device')
+  await api.authBrowserLogin()
+  await api.authCheck()
 
-  assert.deepEqual(calls, [
-    { command: 'open_external', args: { url: 'https://www.google.com/device' } },
-  ])
-})
-
-test('auth poll sends the device code', async () => {
-  const deviceCode = faker.string.alphanumeric(24)
-  const { calls, invoke } = recordingInvoke()
-
-  await createMusicApi(invoke).authPoll(deviceCode)
-
-  assert.deepEqual(calls, [{ command: 'auth_poll', args: { deviceCode } }])
+  assert.deepEqual(
+    calls.map((call) => call.command),
+    ['auth_browser_login', 'auth_check'],
+  )
 })
 
 test('home, guide and account need no arguments', async () => {

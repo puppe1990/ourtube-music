@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde::Serialize;
 
 use crate::audio_proxy::{audio_path, AudioProxy};
-use crate::auth::{self, DeviceStart, PollOutcome};
+use crate::auth;
 use crate::innertube::client::MusicClient;
 use crate::innertube::models::{Account, GuideEntry, Shelf, Stream, Track};
 use crate::session::AuthSession;
@@ -20,14 +20,14 @@ where
         .map_err(|error| format!("innertube task failed: {error}"))?
 }
 
-fn authenticated(session: &AuthSession) -> Result<MusicClient, String> {
-    Ok(MusicClient::new().with_token(session.access_token()?))
+fn authenticated(session: &AuthSession) -> MusicClient {
+    MusicClient::new().with_cookies(session.credentials())
 }
 
 #[tauri::command]
 pub async fn music_home(session: tauri::State<'_, Arc<AuthSession>>) -> Result<Vec<Shelf>, String> {
     let session = Arc::clone(session.inner());
-    on_blocking_pool(move || authenticated(&session)?.home()).await
+    on_blocking_pool(move || authenticated(&session).home()).await
 }
 
 #[tauri::command]
@@ -36,7 +36,7 @@ pub async fn music_search(
     query: String,
 ) -> Result<Vec<Track>, String> {
     let session = Arc::clone(session.inner());
-    on_blocking_pool(move || authenticated(&session)?.search(&query)).await
+    on_blocking_pool(move || authenticated(&session).search(&query)).await
 }
 
 #[tauri::command]
@@ -45,7 +45,7 @@ pub async fn music_queue(
     video_id: String,
 ) -> Result<Vec<Track>, String> {
     let session = Arc::clone(session.inner());
-    on_blocking_pool(move || authenticated(&session)?.queue(&video_id)).await
+    on_blocking_pool(move || authenticated(&session).queue(&video_id)).await
 }
 
 #[tauri::command]
@@ -54,7 +54,7 @@ pub async fn music_stream(
     video_id: String,
 ) -> Result<Stream, String> {
     let session = Arc::clone(session.inner());
-    on_blocking_pool(move || authenticated(&session)?.stream(&video_id)).await
+    on_blocking_pool(move || authenticated(&session).stream(&video_id)).await
 }
 
 #[tauri::command]
@@ -63,7 +63,7 @@ pub async fn music_suggestions(
     input: String,
 ) -> Result<Vec<String>, String> {
     let session = Arc::clone(session.inner());
-    on_blocking_pool(move || authenticated(&session)?.suggestions(&input)).await
+    on_blocking_pool(move || authenticated(&session).suggestions(&input)).await
 }
 
 #[tauri::command]
@@ -71,7 +71,7 @@ pub async fn music_guide(
     session: tauri::State<'_, Arc<AuthSession>>,
 ) -> Result<Vec<GuideEntry>, String> {
     let session = Arc::clone(session.inner());
-    on_blocking_pool(move || authenticated(&session)?.guide()).await
+    on_blocking_pool(move || authenticated(&session).guide()).await
 }
 
 #[tauri::command]
@@ -79,7 +79,7 @@ pub async fn music_account(
     session: tauri::State<'_, Arc<AuthSession>>,
 ) -> Result<Account, String> {
     let session = Arc::clone(session.inner());
-    on_blocking_pool(move || authenticated(&session)?.account()).await
+    on_blocking_pool(move || authenticated(&session).account()).await
 }
 
 #[derive(Serialize)]
@@ -91,51 +91,79 @@ pub struct AccountState {
 
 /// Opens the Google device page in the system browser. Only https Google
 /// hosts are allowed: the webview must never hand an arbitrary URL to `open`.
-pub fn validate_external_url(url: &str) -> Result<url::Url, String> {
-    let parsed = url::Url::parse(url).map_err(|error| format!("invalid url \"{url}\": {error}"))?;
-    if parsed.scheme() != "https" {
-        return Err(format!("refusing to open non-https url \"{url}\""));
+const LOGIN_WINDOW: &str = "google-login";
+const LOGIN_URL: &str =
+    "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fmusic.youtube.com%2F";
+
+/// Opens the real Google sign-in inside the app. The window shares the
+/// webview cookie store, so `auth_check` can read `SAPISID` once the user
+/// finishes — no password ever touches our code.
+#[tauri::command]
+pub async fn auth_browser_login(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    if let Some(window) = app.get_webview_window(LOGIN_WINDOW) {
+        let _ = window.set_focus();
+        return Ok(());
     }
-    match parsed.host_str() {
-        Some("google.com") | Some("www.google.com") => Ok(parsed),
-        other => Err(format!(
-            "refusing to open host {other:?}: only the Google device page is allowed"
-        )),
-    }
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let url = tauri::Url::parse(LOGIN_URL).expect("login url is valid");
+        let built = tauri::WebviewWindowBuilder::new(
+            &handle,
+            LOGIN_WINDOW,
+            tauri::WebviewUrl::External(url),
+        )
+        .title("Entrar com Google")
+        .inner_size(520.0, 740.0)
+        .build();
+        let _ = sender.send(
+            built
+                .map(|_| ())
+                .map_err(|error| format!("open login window: {error}")),
+        );
+    })
+    .map_err(|error| format!("schedule login window: {error}"))?;
+    receiver
+        .recv()
+        .map_err(|error| format!("login window channel: {error}"))?
 }
 
+/// Reads the login window cookies; `authorized` means SAPISID landed and the
+/// credentials were persisted.
 #[tauri::command]
-pub fn open_external(url: String) -> Result<(), String> {
-    let parsed = validate_external_url(&url)?;
-    opener::open(parsed.as_str()).map_err(|error| format!("failed to open {url}: {error}"))
-}
-
-#[tauri::command]
-pub async fn auth_start() -> Result<DeviceStart, String> {
-    let start = on_blocking_pool(auth::start_device_flow).await?;
-    println!("auth start: code={} expires={}s", start.user_code, start.expires_in);
-    Ok(start)
-}
-
-/// Returns `pending`, `slow_down` or `authorized`; the UI polls every
-/// `interval` seconds until authorized or expired.
-#[tauri::command]
-pub async fn auth_poll(
+pub async fn auth_check(
+    app: tauri::AppHandle,
     session: tauri::State<'_, Arc<AuthSession>>,
-    device_code: String,
 ) -> Result<String, String> {
-    let session = Arc::clone(session.inner());
-    on_blocking_pool(move || match auth::poll_device_flow(&device_code)? {
-        // Unauthorized yet: Google answers authorization_pending on every poll.
-
-        PollOutcome::Pending => Ok("pending".to_string()),
-        PollOutcome::SlowDown => Ok("slow_down".to_string()),
-        PollOutcome::Token(tokens) => {
-            session.store(tokens)?;
+    use tauri::Manager;
+    let Some(window) = app.get_webview_window(LOGIN_WINDOW) else {
+        return Ok(if session.credentials().is_some() {
+            "authorized".to_string()
+        } else {
+            "no_window".to_string()
+        });
+    };
+    let cookies = window
+        .cookies()
+        .map_err(|error| format!("read login cookies: {error}"))?;
+    let pairs: Vec<(String, String)> = cookies
+        .iter()
+        .map(|cookie| (cookie.name().to_string(), cookie.value().to_string()))
+        .collect();
+    println!(
+        "auth check: {} cookies, has SAPISID={}",
+        pairs.len(),
+        pairs.iter().any(|(name, _)| name == "SAPISID" || name == "__Secure-3PAPISID")
+    );
+    match auth::extract_cookie_auth(&pairs) {
+        Some(credentials) => {
+            session.store(credentials)?;
+            let _ = window.close();
             Ok("authorized".to_string())
         }
-    })
-    .await
+        None => Ok("pending".to_string()),
+    }
 }
 
 #[tauri::command]
@@ -144,8 +172,8 @@ pub async fn auth_state(
 ) -> Result<AccountState, String> {
     let session = Arc::clone(session.inner());
     on_blocking_pool(move || {
-        let client = authenticated(&session)?;
-        let logged_in = session.tokens().is_some();
+        let client = authenticated(&session);
+        let logged_in = session.credentials().is_some();
         let display_name = if logged_in {
             client.account().map(|account| account.display_name).unwrap_or_default()
         } else {

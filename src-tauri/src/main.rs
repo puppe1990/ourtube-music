@@ -27,11 +27,10 @@ fn main() {
             ourtube_music::commands::music_guide,
             ourtube_music::commands::music_account,
             ourtube_music::commands::music_audio,
-            ourtube_music::commands::auth_start,
-            ourtube_music::commands::auth_poll,
+            ourtube_music::commands::auth_browser_login,
+            ourtube_music::commands::auth_check,
             ourtube_music::commands::auth_state,
-            ourtube_music::commands::auth_logout,
-            ourtube_music::commands::open_external
+            ourtube_music::commands::auth_logout
         ])
         .run(tauri::generate_context!())
         .expect("falha ao abrir a janela do OurTube Music");

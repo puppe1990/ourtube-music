@@ -1,57 +1,39 @@
-//! Runtime auth state: keeps the token set, refreshes it before expiry and
-//! hands the access token to the Innertube client.
+//! Runtime auth state. Holds the browser cookies that sign every Innertube
+//! request and persists them next to the app config (`credentials.json`, 0600).
 
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::auth::{self, PollOutcome, TokenSet};
+use crate::auth::{self, CookieAuth};
 
 pub struct AuthSession {
     dir: PathBuf,
-    tokens: Mutex<Option<TokenSet>>,
+    credentials: Mutex<Option<CookieAuth>>,
 }
 
 impl AuthSession {
     pub fn load(dir: PathBuf) -> Self {
-        let tokens = auth::load_tokens(&dir);
+        let credentials = auth::load_credentials(&dir);
         Self {
             dir,
-            tokens: Mutex::new(tokens),
+            credentials: Mutex::new(credentials),
         }
     }
 
-    pub fn tokens(&self) -> Option<TokenSet> {
-        self.tokens.lock().expect("auth session lock").clone()
+    pub fn credentials(&self) -> Option<CookieAuth> {
+        self.credentials.lock().expect("auth session lock").clone()
     }
 
-    /// Returns a usable access token, refreshing it when the stored one is
-    /// about to expire. `None` means the app is running anonymously.
-    pub fn access_token(&self) -> Result<Option<String>, String> {
-        let Some(tokens) = self.tokens() else {
-            return Ok(None);
-        };
-        if !auth::needs_refresh(tokens.expires_at, now_epoch()) {
-            return Ok(Some(tokens.access_token));
-        }
-        match auth::refresh(&tokens.refresh_token)? {
-            PollOutcome::Token(refreshed) => {
-                self.store(refreshed.clone())?;
-                Ok(Some(refreshed.access_token))
-            }
-            _ => Err("refresh returned no token".to_string()),
-        }
-    }
-
-    pub fn store(&self, tokens: TokenSet) -> Result<(), String> {
-        auth::save_tokens(&self.dir, &tokens)?;
-        *self.tokens.lock().expect("auth session lock") = Some(tokens);
+    pub fn store(&self, credentials: CookieAuth) -> Result<(), String> {
+        auth::save_credentials(&self.dir, &credentials)?;
+        *self.credentials.lock().expect("auth session lock") = Some(credentials);
         Ok(())
     }
 
     pub fn clear(&self) -> Result<(), String> {
-        *self.tokens.lock().expect("auth session lock") = None;
-        let path = auth::token_path(&self.dir);
+        *self.credentials.lock().expect("auth session lock") = None;
+        let path = auth::credential_path(&self.dir);
         match std::fs::remove_file(&path) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),

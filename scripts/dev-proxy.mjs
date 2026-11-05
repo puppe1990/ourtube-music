@@ -65,29 +65,15 @@ async function proxyCommand(command, request, response) {
       response.end('null')
       return
     }
-    // Preview stub: the real device flow lives in the Rust shell. This keeps
-    // the dialog (code + copy + link) testable in the browser.
-    if (command === 'auth_start') {
-      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-      response.end(
-        JSON.stringify({
-          deviceCode: 'preview-device-code',
-          userCode: 'ABCD-EFGH',
-          verificationUrl: 'https://www.google.com/device',
-          expiresIn: 1800,
-          interval: 5,
-        }),
-      )
+    // The Google window only exists in the Tauri shell.
+    if (command === 'auth_browser_login') {
+      response.writeHead(501, { 'content-type': 'text/plain; charset=utf-8' })
+      response.end('o login Google só funciona na janela Tauri')
       return
     }
-    if (command === 'auth_poll') {
+    if (command === 'auth_check') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-      response.end(JSON.stringify('pending'))
-      return
-    }
-    if (command === 'open_external') {
-      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-      response.end('null')
+      response.end(JSON.stringify('no_window'))
       return
     }
     if (command === 'music_audio') {

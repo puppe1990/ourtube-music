@@ -1,195 +1,79 @@
-//! Google OAuth device flow (the one YouTube TV uses) so the app can read the
-//! signed-in library. Tokens live in a 0600 JSON file inside the app config
-//! dir — the same rule as the other local tools (no Keychain prompts).
+//! Browser-cookie authentication (SAPISIDHASH). Google restricted the TV OAuth
+//! device flow for the music endpoints in Aug/2025 — every authenticated call
+//! answers 400 INVALID_ARGUMENT (sigma67/ytmusicapi#813) — so the app uses the
+//! same scheme as the web player: the `SAPISID` cookie signs each request.
 
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use sha1::{Digest, Sha1};
 
-pub const CLIENT_ID: &str =
-    "861556708454-d6dlm3lh05idd8npek18k6be8ba3oc68.apps.googleusercontent.com";
-pub const SCOPE: &str = "https://www.googleapis.com/auth/youtube";
-/// The TV client is a "confidential" OAuth client: Google rejects the token
-/// exchange without this secret (`invalid_request: Missing ... client_secret`).
-pub const CLIENT_SECRET: &str = "SboVhoG9s0rNafixCSGGKXAT";
-pub const DEVICE_CODE_URL: &str = "https://oauth2.googleapis.com/device/code";
-pub const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
-/// Refresh a minute early so a request never leaves with an expired token.
-pub const REFRESH_MARGIN_SECS: i64 = 60;
-pub const TOKEN_FILE: &str = "auth.json";
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeviceStart {
-    pub device_code: String,
-    pub user_code: String,
-    pub verification_url: String,
-    pub expires_in: u64,
-    pub interval: u64,
-}
+pub const ORIGIN: &str = "https://music.youtube.com";
+pub const CREDENTIALS_FILE: &str = "credentials.json";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TokenSet {
-    pub access_token: String,
-    pub refresh_token: String,
-    pub expires_at: i64,
+pub struct CookieAuth {
+    /// Full `Cookie:` header built from the signed-in browser session.
+    pub cookies: String,
+    /// Value of the `SAPISID` (or `__Secure-3PAPISID`) cookie.
+    pub sapisid: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PollOutcome {
-    Pending,
-    SlowDown,
-    Token(TokenSet),
+impl CookieAuth {
+    pub fn authorization(&self, timestamp: i64) -> String {
+        sapisid_hash(&self.sapisid, timestamp)
+    }
 }
 
-pub fn parse_device_start(raw: &Value) -> Result<DeviceStart, String> {
-    let text = |field: &str| {
-        raw.get(field)
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .ok_or_else(|| format!("device code response without \"{field}\": {raw}"))
-    };
-    Ok(DeviceStart {
-        device_code: text("device_code")?,
-        user_code: text("user_code")?,
-        verification_url: text("verification_url")?,
-        expires_in: raw.get("expires_in").and_then(Value::as_u64).unwrap_or(1800),
-        interval: raw.get("interval").and_then(Value::as_u64).unwrap_or(5),
+/// `SAPISIDHASH <ts>_<sha1(ts + " " + sapisid + " " + origin)>`.
+pub fn sapisid_hash(sapisid: &str, timestamp: i64) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(format!("{timestamp} {sapisid} {ORIGIN}").as_bytes());
+    format!("SAPISIDHASH {timestamp}_{:x}", hasher.finalize())
+}
+
+pub fn cookie_header(pairs: &[(String, String)]) -> String {
+    pairs
+        .iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// Picks the signing cookie out of a session dump. `SAPISID` is preferred;
+/// `__Secure-3PAPISID` carries the same secret when the plain one is absent.
+pub fn extract_cookie_auth(pairs: &[(String, String)]) -> Option<CookieAuth> {
+    let sapisid = pairs
+        .iter()
+        .find(|(name, _)| name == "SAPISID")
+        .or_else(|| pairs.iter().find(|(name, _)| name == "__Secure-3PAPISID"))
+        .map(|(_, value)| value.clone())?;
+    if sapisid.is_empty() {
+        return None;
+    }
+    Some(CookieAuth {
+        cookies: cookie_header(pairs),
+        sapisid,
     })
 }
 
-pub fn parse_poll(
-    raw: &Value,
-    now: i64,
-    previous_refresh: Option<&str>,
-) -> Result<PollOutcome, String> {
-    if let Some(code) = raw.get("error").and_then(Value::as_str) {
-        return match code {
-            "authorization_pending" => Ok(PollOutcome::Pending),
-            "slow_down" => Ok(PollOutcome::SlowDown),
-            other => Err(format!("google oauth error \"{other}\": {raw}")),
-        };
-    }
-    let access_token = raw
-        .get("access_token")
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("token response without \"access_token\": {raw}"))?;
-    let refresh_token = raw
-        .get("refresh_token")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .or_else(|| previous_refresh.map(str::to_string))
-        .ok_or_else(|| format!("token response without \"refresh_token\": {raw}"))?;
-    let expires_in = raw.get("expires_in").and_then(Value::as_i64).unwrap_or(0);
-    Ok(PollOutcome::Token(TokenSet {
-        access_token: access_token.to_string(),
-        refresh_token,
-        expires_at: now + expires_in,
-    }))
+pub fn credential_path(dir: &Path) -> PathBuf {
+    dir.join(CREDENTIALS_FILE)
 }
 
-pub fn needs_refresh(expires_at: i64, now: i64) -> bool {
-    expires_at - REFRESH_MARGIN_SECS <= now
-}
-
-pub fn auth_header(token: &str) -> String {
-    format!("Bearer {token}")
-}
-
-pub fn token_path(dir: &Path) -> PathBuf {
-    dir.join(TOKEN_FILE)
-}
-
-pub fn save_tokens(dir: &Path, tokens: &TokenSet) -> Result<(), String> {
+pub fn save_credentials(dir: &Path, auth: &CookieAuth) -> Result<(), String> {
     fs::create_dir_all(dir).map_err(|error| format!("create {}: {error}", dir.display()))?;
-    let path = token_path(dir);
-    let json = serde_json::to_string_pretty(tokens)
-        .map_err(|error| format!("serialize tokens: {error}"))?;
-    write_private(&path, &json)
-        .map_err(|error| format!("write {}: {error}", path.display()))
+    let path = credential_path(dir);
+    let json = serde_json::to_string_pretty(auth)
+        .map_err(|error| format!("serialize credentials: {error}"))?;
+    write_private(&path, &json).map_err(|error| format!("write {}: {error}", path.display()))
 }
 
-pub fn load_tokens(dir: &Path) -> Option<TokenSet> {
-    let raw = fs::read_to_string(token_path(dir)).ok()?;
+pub fn load_credentials(dir: &Path) -> Option<CookieAuth> {
+    let raw = fs::read_to_string(credential_path(dir)).ok()?;
     serde_json::from_str(&raw).ok()
-}
-
-/// Kicks off the device flow: the user types `user_code` on
-/// `verification_url` and the app polls the token endpoint.
-pub fn start_device_flow() -> Result<DeviceStart, String> {
-    let response = http()?
-        .post(DEVICE_CODE_URL)
-        .form(&[("client_id", CLIENT_ID), ("scope", SCOPE)])
-        .send()
-        .map_err(|error| format!("POST device/code failed: {error}"))?;
-    let status = response.status();
-    let payload: Value = response
-        .json()
-        .map_err(|error| format!("decode device/code: {error}"))?;
-    if !status.is_success() {
-        return Err(format!("device/code returned HTTP {}: {payload}", status.as_u16()));
-    }
-    parse_device_start(&payload)
-}
-
-pub fn device_token_form(device_code: &str) -> Vec<(&'static str, String)> {
-    vec![
-        ("client_id", CLIENT_ID.to_string()),
-        ("client_secret", CLIENT_SECRET.to_string()),
-        ("device_code", device_code.to_string()),
-        (
-            "grant_type",
-            "urn:ietf:params:oauth:grant-type:device_code".to_string(),
-        ),
-    ]
-}
-
-pub fn refresh_form(refresh_token: &str) -> Vec<(&'static str, String)> {
-    vec![
-        ("client_id", CLIENT_ID.to_string()),
-        ("client_secret", CLIENT_SECRET.to_string()),
-        ("refresh_token", refresh_token.to_string()),
-        ("grant_type", "refresh_token".to_string()),
-    ]
-}
-
-pub fn poll_device_flow(device_code: &str) -> Result<PollOutcome, String> {
-    let response = http()?
-        .post(TOKEN_URL)
-        .form(&device_token_form(device_code))
-        .send()
-        .map_err(|error| format!("POST token failed: {error}"))?;
-    let payload: Value = response
-        .json()
-        .map_err(|error| format!("decode token: {error}"))?;
-    parse_poll(&payload, now_epoch(), None)
-}
-
-pub fn refresh(refresh_token: &str) -> Result<PollOutcome, String> {
-    let response = http()?
-        .post(TOKEN_URL)
-        .form(&refresh_form(refresh_token))
-        .send()
-        .map_err(|error| format!("POST refresh failed: {error}"))?;
-    let payload: Value = response
-        .json()
-        .map_err(|error| format!("decode refresh: {error}"))?;
-    parse_poll(&payload, now_epoch(), Some(refresh_token))
-}
-
-pub fn now_epoch() -> i64 {
-    crate::session::now_epoch()
-}
-
-fn http() -> Result<reqwest::blocking::Client, String> {
-    reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(20))
-        .build()
-        .map_err(|error| format!("build oauth http client: {error}"))
 }
 
 fn write_private(path: &Path, contents: &str) -> std::io::Result<()> {

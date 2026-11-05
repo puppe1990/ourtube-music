@@ -109,8 +109,7 @@ fn serve(mut connection: TcpStream, session: Arc<AuthSession>) -> io::Result<()>
     };
     let range = range_header(&mut lines);
 
-    let token = session.access_token().unwrap_or(None);
-    let client = MusicClient::new().with_token(token);
+    let client = MusicClient::new().with_cookies(session.credentials());
     let media = match client.open_audio(&request.video_id, request.container.as_deref(), range.as_deref()) {
         Ok(media) => media,
         Err(error) => return write_plain(&mut connection, 502, &error),

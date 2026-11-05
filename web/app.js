@@ -1,10 +1,9 @@
 import { createMusicApi, resolveInvoker } from '/src/api.mjs'
-import { isSafeExternalUrl } from '/src/external.mjs'
 import { isFavorite, readFavorites, toggleFavorite } from '/src/favorites.mjs'
 import { formatBitrate, formatDuration, shorten } from '/src/format.mjs'
 import { greeting } from '/src/greeting.mjs'
 import { nextTrack, upNext } from '/src/queue.mjs'
-import { accountLabel, pollLabel } from '/src/session.mjs'
+import { accountLabel } from '/src/session.mjs'
 
 const api = createMusicApi(resolveInvoker())
 const state = {
@@ -49,9 +48,7 @@ const dom = {
   volume: $('#volume'),
   status: $('#status'),
   loginDialog: $('#login-dialog'),
-  loginCode: $('#login-code'),
-  loginCopy: $('#login-copy'),
-  loginOpen: $('#login-open'),
+
   loginStatus: $('#login-status'),
   logoutDialog: $('#logout-dialog'),
   logoutConfirm: $('#logout-confirm'),
@@ -450,136 +447,45 @@ async function refreshAccount() {
   }
 }
 
-const LOGIN_KEY = 'ourtube-login'
-
-// The device code has to survive a window reload: if the app restarts while
-// the user is authorizing on Google, the next boot resumes the same poll.
-function readPendingLogin() {
-  try {
-    const pending = JSON.parse(localStorage.getItem(LOGIN_KEY) ?? 'null')
-    if (!pending?.deviceCode || !pending?.expiresAt) return null
-    if (Date.now() > pending.expiresAt) {
-      localStorage.removeItem(LOGIN_KEY)
-      return null
-    }
-    return pending
-  } catch (_error) {
-    return null
-  }
-}
-
-function savePendingLogin(start) {
-  try {
-    const expiresAt = Date.now() + (Number(start.expiresIn) || 1800) * 1000
-    localStorage.setItem(LOGIN_KEY, JSON.stringify({ ...start, expiresAt }))
-  } catch (_error) {
-    // Sem storage o fluxo continua valendo para esta sessão.
-  }
-}
-
-function clearPendingLogin() {
-  try {
-    localStorage.removeItem(LOGIN_KEY)
-  } catch (_error) {
-    // ignore
-  }
-}
-
-function showPendingLogin(pending, message) {
-  const url = pending.verificationUrl || 'https://www.google.com/device'
-  state.loginUrl = url
-  dom.loginCode.textContent = pending.userCode
-  dom.loginOpen.textContent = url.replace(/^https?:\/\//, '')
-  dom.loginStatus.textContent = message
-}
-
-async function openDevicePage() {
-  const url = state.loginUrl || 'https://www.google.com/device'
-  if (!isSafeExternalUrl(url)) {
-    dom.loginStatus.textContent = `Link recusado: ${url}`
-    return
-  }
-  if (globalThis.__TAURI__?.core?.invoke) {
-    try {
-      await api.openExternal(url)
-      return
-    } catch (_error) {
-      // Falls through to window.open on shells without the opener command.
-    }
-  }
-  window.open(url, '_blank', 'noopener')
-}
-
-async function copyLoginCode() {
-  const code = dom.loginCode.textContent.trim()
-  if (!code || code === '—') return
-  const copied = await writeClipboard(code)
-  dom.loginCopy.textContent = copied ? 'Copiado!' : 'Não deu'
-  setTimeout(() => {
-    dom.loginCopy.textContent = 'Copiar'
-  }, 1600)
-}
-
-async function writeClipboard(text) {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch (_error) {
-    // WKWebView can deny the async clipboard; the textarea path still works.
-  }
-  const helper = document.createElement('textarea')
-  helper.value = text
-  helper.setAttribute('readonly', '')
-  helper.style.position = 'fixed'
-  helper.style.opacity = '0'
-  document.body.append(helper)
-  helper.select()
-  const copied = document.execCommand('copy')
-  helper.remove()
-  return copied
-}
-
 async function openLogin() {
+  dom.loginStatus.textContent = 'Abrindo a janela do Google…'
   dom.loginDialog.showModal()
-  const pending = readPendingLogin()
-  if (pending) {
-    showPendingLogin(pending, 'Retomando o login que ficou pela metade…')
-    pollLogin(pending)
-    return
-  }
-  dom.loginCode.textContent = '—'
-  dom.loginStatus.textContent = 'Gerando código…'
   try {
-    const start = await api.authStart()
-    savePendingLogin(start)
-    showPendingLogin(start, pollLabel('pending'))
-    pollLogin(start)
+    await api.authBrowserLogin()
+    dom.loginStatus.textContent =
+      'Entre com sua conta na janela do Google. O app detecta sozinho quando terminar.'
+    pollLogin()
   } catch (error) {
     dom.loginStatus.textContent = `Login indisponível: ${error.message}`
   }
 }
 
-// The device flow asks the user to authorize on Google; polling stops on the
-// first authorized/error answer so we never keep a timer after the dialog.
-function pollLogin(start) {
+// The sign-in happens in a real Google window; we only read the cookies it
+// leaves behind (auth_check) and stop as soon as SAPISID is stored.
+function pollLogin() {
   clearInterval(state.loginTimer)
-  const interval = Math.max(Number(start.interval) || 5, 5) * 1000
   state.loginTimer = setInterval(async () => {
     try {
-      const status = await api.authPoll(start.deviceCode)
-      dom.loginStatus.textContent = pollLabel(status)
-      if (status !== 'authorized') return
-      clearInterval(state.loginTimer)
-      clearPendingLogin()
-      await refreshAccount()
-      await reloadMusic()
-      setTimeout(() => dom.loginDialog.close(), 700)
+      const status = await api.authCheck()
+      if (status === 'authorized') {
+        clearInterval(state.loginTimer)
+        dom.loginStatus.textContent = 'Autorizado!'
+        await refreshAccount()
+        await reloadMusic()
+        setTimeout(() => dom.loginDialog.close(), 700)
+        return
+      }
+      if (status === 'no_window') {
+        clearInterval(state.loginTimer)
+        dom.loginStatus.textContent = 'Janela fechada antes do login. Tente de novo.'
+        return
+      }
+      dom.loginStatus.textContent = 'Aguardando você concluir o login no Google…'
     } catch (error) {
       clearInterval(state.loginTimer)
-      clearPendingLogin()
-      dom.loginStatus.textContent = pollLabel('error', error.message)
+      dom.loginStatus.textContent = `Falha ao checar o login: ${error.message}`
     }
-  }, interval)
+  }, 2000)
 }
 
 async function reloadMusic() {
@@ -728,8 +634,7 @@ function wireEvents() {
     }
   })
 
-  dom.loginCopy.addEventListener('click', copyLoginCode)
-  dom.loginOpen.addEventListener('click', openDevicePage)
+  dom.loginDialog.addEventListener('close', () => clearInterval(state.loginTimer))
 
   dom.account.addEventListener('click', () => {
     if (state.account?.loggedIn) dom.logoutDialog.showModal()
@@ -787,13 +692,6 @@ async function boot() {
   renderRecent()
   wireEvents()
   route()
-
-  const pendingLogin = readPendingLogin()
-  if (pendingLogin) {
-    dom.loginDialog.showModal()
-    showPendingLogin(pendingLogin, 'Retomando o login que ficou pela metade…')
-    pollLogin(pendingLogin)
-  }
 
   api
     .guide()
