@@ -24,7 +24,9 @@
     "format:check": "prettier --check .",
     "ci": "npm run format:check && npm run lint && npm test",
     "prepare": "husky",
-    "icons": "node scripts/make-icons.mjs"
+    "icons": "node scripts/make-icons.mjs",
+    "bundle": "node scripts/make-tauri-dist.mjs && npx --yes @tauri-apps/cli@2 build --bundles app",
+    "install:app": "npm run bundle && rm -rf '/Applications/OurTube Music.app' && cp -R 'src-tauri/target/release/bundle/macos/OurTube Music.app' /Applications/"
   },
   "lint-staged": {
     "*.{js,mjs}": [

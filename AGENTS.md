@@ -13,7 +13,9 @@ npm run lint
 npm run format:check
 npm run ci               # format:check + lint + test
 npm run dev              # preview no browser em http://127.0.0.1:8794 (proxy), não use 8765
-npm run tauri:dev        # dist + janela Tauri
+npm run tauri:dev        # dist + janela Tauri (dev)
+npm run bundle           # gera "OurTube Music.app" em src-tauri/target/release/bundle/macos
+npm run install:app      # gera e copia o .app para /Applications
 ```
 
 Gate completo: `npm run ci && npm run rust:test`.
