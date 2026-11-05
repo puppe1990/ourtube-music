@@ -58,6 +58,14 @@ WEB_REMIX responde `UNPLAYABLE` no `/player`; o cliente IOS devolve URL direta d
 | `scripts/dev-proxy.mjs`                | preview no browser + proxy `/innertube/*`         |
 | `test/`                                | `node:test` com faker                             |
 
+## Design (Obsidian Pulse)
+
+Veio do pacote Stitch (`stitch_red_spotify_music_player.zip`). `web/style.css` é a fonte única
+dos tokens: fundo `#030303`, superfícies `#0f0f0f`/`#181818`/`#212121`, borda `#2a2a2a`,
+acento `#ff0000` (hover `#ff4e45`, press `#cc0000`), texto `#fff`/`#aaa`/`#717171`,
+Plus Jakarta Sans. Layout: rail 256px + canvas + dock fixo de 80px (três módulos: faixa,
+controles/scrubber, volume). Não invente hex novo: use as variáveis CSS.
+
 ## Convenções
 
 - Funções 4–20 linhas; arquivos até 300 (teto 500). Nomes greppáveis.

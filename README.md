@@ -30,6 +30,12 @@ autorizar em `google.com/device`. O refresh token fica em
 a levar `Authorization: Bearer <token>` e `X-Goog-AuthUser: 0`, então home,
 biblioteca e player respondem já com a sua conta.
 
+## Design
+
+Interface no sistema **Obsidian Pulse**: preto absoluto (`#030303`), superfícies tonais,
+acento vermelho `#ff0000`, Plus Jakarta Sans e dock de player em três módulos. Os tokens
+morfam para o tema claro pelas mesmas variáveis CSS (`html[data-theme='light']`).
+
 ## Rodar
 
 ```bash

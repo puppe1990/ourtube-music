@@ -1,41 +1,62 @@
 import { createMusicApi, resolveInvoker } from '/src/api.mjs'
+import { isFavorite, readFavorites, toggleFavorite } from '/src/favorites.mjs'
 import { formatBitrate, formatDuration, shorten } from '/src/format.mjs'
+import { greeting } from '/src/greeting.mjs'
 import { nextTrack, upNext } from '/src/queue.mjs'
 import { accountLabel, pollLabel } from '/src/session.mjs'
 
 const api = createMusicApi(resolveInvoker())
-const state = { shelves: [], results: [], queue: [], current: null, recent: [] }
+const state = {
+  shelves: [],
+  results: [],
+  queue: [],
+  current: null,
+  recent: [],
+  favorites: [],
+  filter: '',
+  homeLoaded: false,
+}
+
+const $ = (selector) => document.querySelector(selector)
 
 const dom = {
-  main: document.querySelector('#main'),
-  guide: document.querySelector('#guide'),
-  form: document.querySelector('#search'),
-  input: document.querySelector('#search-input'),
-  suggestions: document.querySelector('#suggestions'),
-  account: document.querySelector('#account'),
-  loginDialog: document.querySelector('#login-dialog'),
-  loginCode: document.querySelector('#login-code'),
-  loginLink: document.querySelector('#login-link'),
-  loginStatus: document.querySelector('#login-status'),
-  logoutDialog: document.querySelector('#logout-dialog'),
-  logoutConfirm: document.querySelector('#logout-confirm'),
-  theme: document.querySelector('#theme-toggle'),
-  recent: document.querySelector('#recent'),
-  player: document.querySelector('#player'),
-  audio: document.querySelector('#audio'),
-  art: document.querySelector('#player-art'),
-  title: document.querySelector('#player-title'),
-  artist: document.querySelector('#player-artist'),
-  meta: document.querySelector('#player-meta'),
-  playPause: document.querySelector('#play-pause'),
-  iconPlay: document.querySelector('#icon-play'),
-  iconPause: document.querySelector('#icon-pause'),
-  next: document.querySelector('#next'),
-  progress: document.querySelector('#progress'),
-  elapsed: document.querySelector('#elapsed'),
-  total: document.querySelector('#total'),
-  status: document.querySelector('#status'),
+  main: $('#main'),
+  guide: $('#guide'),
+  form: $('#search'),
+  input: $('#search-input'),
+  suggestions: $('#suggestions'),
+  chips: $('#chips'),
+  account: $('#account'),
+  theme: $('#theme-toggle'),
+  favorites: $('#favorites'),
+  recent: $('#recent'),
+  player: $('#player'),
+  audio: $('#audio'),
+  art: $('#player-art'),
+  title: $('#player-title'),
+  artist: $('#player-artist'),
+  meta: $('#player-meta'),
+  heart: $('#heart'),
+  playPause: $('#play-pause'),
+  iconPlay: $('#icon-play'),
+  iconPause: $('#icon-pause'),
+  prev: $('#prev'),
+  next: $('#next'),
+  progress: $('#progress'),
+  elapsed: $('#elapsed'),
+  total: $('#total'),
+  volume: $('#volume'),
+  status: $('#status'),
+  loginDialog: $('#login-dialog'),
+  loginCode: $('#login-code'),
+  loginLink: $('#login-link'),
+  loginStatus: $('#login-status'),
+  logoutDialog: $('#logout-dialog'),
+  logoutConfirm: $('#logout-confirm'),
 }
+
+const ICON_PLAY =
+  '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5l12 7-12 7z"></path></svg>'
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -51,48 +72,65 @@ function setStatus(message, tone = 'info') {
   dom.status.dataset.tone = tone
 }
 
-function art(track, size = 168) {
-  if (!track?.thumbnail) return '<div class="art-fallback"></div>'
-  return `<img src="${escapeHtml(track.thumbnail)}" alt="" width="${size}" height="${size}" loading="lazy" />`
+function art(track, className) {
+  if (!track?.thumbnail) return `<div class="${className} art-empty"></div>`
+  return `<img class="${className}" src="${escapeHtml(track.thumbnail)}" alt="" loading="lazy" />`
 }
 
-function cardHtml(track) {
+function byline(track) {
+  return [track.artist, track.album].filter(Boolean).join(' • ')
+}
+
+/* ── cards / lists ──────────────────────────────────────────────────────── */
+function quickCard(track) {
+  return `<button class="quick-card" type="button" data-video-id="${escapeHtml(track.videoId)}">
+    ${art(track, 'quick-art')}
+    <span class="quick-text">
+      <strong>${escapeHtml(shorten(track.title, 34))}</strong>
+      <span>${escapeHtml(shorten(byline(track), 40))}</span>
+    </span>
+    <span class="quick-play" aria-hidden="true">${ICON_PLAY}</span>
+  </button>`
+}
+
+function shelfCard(track) {
   return `<button class="card" type="button" data-video-id="${escapeHtml(track.videoId)}">
-    ${art(track)}
-    <strong>${escapeHtml(shorten(track.title, 40))}</strong>
+    <span class="card-art">
+      ${art(track, 'card-img')}
+      <span class="card-play" aria-hidden="true">${ICON_PLAY}</span>
+    </span>
+    <strong>${escapeHtml(shorten(track.title, 46))}</strong>
     <span>${escapeHtml(shorten(track.artist, 34))}</span>
   </button>`
 }
 
-function rowHtml(track, index) {
-  const current = state.current?.videoId === track.videoId ? 'true' : 'false'
+function eqBars() {
+  return '<span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>'
+}
+
+function row(track, index) {
+  const current = state.current?.videoId === track.videoId
   return `<li>
     <button class="track-row" type="button" data-video-id="${escapeHtml(track.videoId)}" data-current="${current}">
       <span class="track-index">${index + 1}</span>
-      ${art(track, 46)}
+      ${art(track, 'track-img')}
       <span class="track-text">
-        <strong>${escapeHtml(track.title)}</strong>
-        <span>${escapeHtml([track.artist, track.album].filter(Boolean).join(' • '))}</span>
+        <strong>${escapeHtml(track.title)}${current ? eqBars() : ''}</strong>
+        <span>${escapeHtml(byline(track))}</span>
       </span>
       <span class="track-duration">${escapeHtml(track.duration)}</span>
     </button>
   </li>`
 }
 
-function trackListHtml(tracks) {
-  if (!tracks.length) return '<p class="empty">Nenhuma faixa por aqui.</p>'
-  return `<ul class="track-list">${tracks.map(rowHtml).join('')}</ul>`
+function trackList(tracks, emptyMessage = 'Nenhuma faixa por aqui.') {
+  if (!tracks.length) return `<p class="empty">${escapeHtml(emptyMessage)}</p>`
+  return `<ul class="track-list">${tracks.map(row).join('')}</ul>`
 }
 
-function shelvesHtml(shelves) {
-  return shelves
-    .map(
-      (shelf) => `<section class="shelf">
-        <h2 class="section-title">${escapeHtml(shelf.title)}</h2>
-        <div class="shelf-rail">${shelf.tracks.map(cardHtml).join('')}</div>
-      </section>`,
-    )
-    .join('')
+/* ── views ──────────────────────────────────────────────────────────────── */
+function quickPicks() {
+  return state.shelves.flatMap((shelf) => shelf.tracks).slice(0, 6)
 }
 
 function renderHome() {
@@ -102,31 +140,94 @@ function renderHome() {
       : '<p class="empty">Carregando a home do YouTube Music…</p>'
     return
   }
-  dom.main.innerHTML = shelvesHtml(state.shelves)
+  const picks = quickPicks()
+  const shelves = state.shelves
+    .map(
+      (shelf) => `<section class="shelf">
+        <div class="shelf-head">
+          <div>
+            <h2 class="section-title">${escapeHtml(shelf.title)}</h2>
+            <p class="shelf-sub">${shelf.tracks.length} faixas</p>
+          </div>
+        </div>
+        <div class="shelf-rail">${shelf.tracks.map(shelfCard).join('')}</div>
+      </section>`,
+    )
+    .join('')
+
+  dom.main.innerHTML = `
+    <section class="hero">
+      <span class="pulse-dot" aria-hidden="true"></span>
+      <h1>${greeting(new Date().getHours())}</h1>
+    </section>
+    <section class="quick-grid">${picks.map(quickCard).join('')}</section>
+    ${shelves}`
 }
 
 function renderSearch(query, tracks) {
-  const heading = `<h2 class="section-title">Resultados para “${escapeHtml(query)}”</h2>`
-  dom.main.innerHTML = `${heading}${tracks.length ? trackListHtml(tracks) : '<p class="empty">Nada encontrado.</p>'}`
+  const visible = tracks.filter((track) => matchesFilter(track))
+  const label = state.filter === 'song' ? 'Músicas' : state.filter === 'video' ? 'Vídeos' : 'Tudo'
+  dom.main.innerHTML = `
+    <section class="hero">
+      <span class="pulse-dot" aria-hidden="true"></span>
+      <h1>Resultados</h1>
+    </section>
+    <section class="shelf">
+      <div class="shelf-head">
+        <div>
+          <h2 class="section-title">“${escapeHtml(query)}”</h2>
+          <p class="shelf-sub">${visible.length} itens · filtro: ${label}</p>
+        </div>
+      </div>
+      ${trackList(visible, 'Nada encontrado com esse filtro.')}
+    </section>`
+}
+
+function matchesFilter(track) {
+  if (!state.filter) return true
+  const kind = /video/i.test(track.artist) && !/song/i.test(track.artist) ? 'video' : 'song'
+  return kind === state.filter
 }
 
 function renderWatch(track) {
   const queued = upNext(state.queue, track.videoId)
   dom.main.innerHTML = `
-    <section class="hero">
-      ${art(track, 190)}
-      <div class="hero-text">
+    <section class="hero-card">
+      ${art(track, 'hero-art')}
+      <div>
         <h1>${escapeHtml(track.title || 'Tocando agora')}</h1>
-        <p>${escapeHtml([track.artist, track.album].filter(Boolean).join(' • '))}</p>
+        <p>${escapeHtml(byline(track))}</p>
         <div class="hero-meta">
-          ${track.duration ? `<span class="chip">${escapeHtml(track.duration)}</span>` : ''}
-          <span class="chip">player · IOS</span>
+          ${track.duration ? `<span class="pill">${escapeHtml(track.duration)}</span>` : ''}
+          <span class="pill pill-red">player · IOS</span>
         </div>
       </div>
     </section>
     <section class="shelf">
-      <h2 class="section-title">A seguir</h2>
-      ${queued.length ? trackListHtml(queued) : '<p class="empty">Sem próximas faixas nesta fila.</p>'}
+      <div class="shelf-head">
+        <div>
+          <h2 class="section-title">A seguir</h2>
+          <p class="shelf-sub">${queued.length} faixas na fila</p>
+        </div>
+      </div>
+      ${trackList(queued, 'Sem próximas faixas nesta fila.')}
+    </section>`
+}
+
+function renderFavorites() {
+  dom.main.innerHTML = `
+    <section class="hero">
+      <span class="pulse-dot" aria-hidden="true"></span>
+      <h1>Músicas Curtidas</h1>
+    </section>
+    <section class="shelf">
+      <div class="shelf-head">
+        <div>
+          <h2 class="section-title">${state.favorites.length} faixas salvas</h2>
+          <p class="shelf-sub">Guardadas neste Mac</p>
+        </div>
+      </div>
+      ${trackList(state.favorites, 'Toque no coração do player para curtir uma faixa.')}
     </section>`
 }
 
@@ -134,7 +235,9 @@ function renderGuide(entries) {
   dom.guide.innerHTML = entries
     .map(
       (entry) =>
-        `<a href="#/" data-browse="${escapeHtml(entry.browseId)}" ${entry.browseId === 'FEmusic_home' ? 'aria-current="true"' : ''}>${escapeHtml(entry.label)}</a>`,
+        `<a href="#/" data-browse="${escapeHtml(entry.browseId)}" ${
+          entry.browseId === 'FEmusic_home' ? 'aria-current="true"' : ''
+        }>${escapeHtml(entry.label)}</a>`,
     )
     .join('')
 }
@@ -148,20 +251,9 @@ function renderRecent() {
     .join('')
 }
 
-function rememberSearch(term) {
-  const trimmed = term.trim()
-  if (!trimmed) return
-  state.recent = [trimmed, ...state.recent.filter((item) => item !== trimmed)].slice(0, 8)
-  try {
-    localStorage.setItem('ourtube-recent', JSON.stringify(state.recent))
-  } catch (_error) {
-    // localStorage pode estar indisponível; buscas recentes são opcionais.
-  }
-  renderRecent()
-}
-
+/* ── playback ───────────────────────────────────────────────────────────── */
 function findTrack(videoId) {
-  const pools = [state.queue, state.results, ...state.shelves.map((shelf) => shelf.tracks)]
+  const pools = [state.queue, state.results, state.favorites, ...state.shelves.map((s) => s.tracks)]
   return pools.flat().find((track) => track.videoId === videoId) ?? null
 }
 
@@ -174,6 +266,7 @@ async function play(track, queue) {
   dom.artist.textContent = track.artist || '—'
   dom.art.src = track.thumbnail || ''
   setStatus('resolvendo áudio…')
+  refreshHeart()
 
   try {
     const [stream, audioSrc] = await Promise.all([
@@ -185,6 +278,7 @@ async function play(track, queue) {
     dom.audio.src = audioSrc
     dom.audio.load()
     await dom.audio.play().catch(() => setStatus('clique no play', 'info'))
+
     const queuedRow = state.queue.find((item) => item.videoId === track.videoId)
     const enriched = {
       ...track,
@@ -197,6 +291,7 @@ async function play(track, queue) {
     if (location.hash.startsWith('#/watch/')) renderWatch(enriched)
     dom.title.textContent = enriched.title
     dom.artist.textContent = enriched.artist
+    dom.art.src = enriched.thumbnail || ''
     dom.meta.textContent = [
       formatBitrate(stream.bitrate),
       stream.mimeType.includes('mp4') ? 'AAC' : 'Opus',
@@ -205,6 +300,7 @@ async function play(track, queue) {
       .join(' · ')
     dom.total.textContent = formatDuration(stream.duration)
     setStatus('')
+    refreshHeart()
   } catch (error) {
     setStatus(error.message ?? 'falha ao resolver o áudio', 'error')
   }
@@ -227,8 +323,6 @@ function watch(videoId) {
   loadQueue(videoId)
 }
 
-// The watch-next panel also carries the current row (with its cover), so a
-// deep link gets artwork and the "a seguir" list from a single call.
 async function loadQueue(videoId) {
   try {
     const queue = await api.queue(videoId)
@@ -248,13 +342,45 @@ async function loadQueue(videoId) {
   }
 }
 
+function step(direction) {
+  const index = state.queue.findIndex((track) => track.videoId === state.current?.videoId)
+  if (index < 0) return
+  const following =
+    direction > 0
+      ? nextTrack(state.queue, state.current.videoId)
+      : (state.queue[index - 1] ?? state.queue.at(-1))
+  if (!following) return
+  location.hash = `#/watch/${following.videoId}`
+}
+
+/* ── favorites ──────────────────────────────────────────────────────────── */
+function persistFavorites() {
+  try {
+    localStorage.setItem('ourtube-favorites', JSON.stringify(state.favorites))
+  } catch (_error) {
+    // Storage is optional; the session keeps the list in memory.
+  }
+}
+
+function refreshHeart() {
+  const liked = state.current ? isFavorite(state.favorites, state.current.videoId) : false
+  dom.heart.setAttribute('aria-pressed', liked ? 'true' : 'false')
+}
+
+function toggleCurrentFavorite() {
+  if (!state.current) return
+  state.favorites = toggleFavorite(state.favorites, state.current)
+  persistFavorites()
+  refreshHeart()
+  if (location.hash.startsWith('#/favorites')) renderFavorites()
+}
+
+/* ── data loading ───────────────────────────────────────────────────────── */
 function isHomeRoute() {
   const hash = location.hash.replace(/^#/, '') || '/'
   return hash === '/' || hash === ''
 }
 
-// A deep link to /watch or /search boots while this fetch is in flight; only
-// paint the home when the user is still there.
 async function loadHome() {
   try {
     state.shelves = await api.home()
@@ -284,6 +410,18 @@ async function runSearch(query) {
   }
 }
 
+function rememberSearch(term) {
+  const trimmed = term.trim()
+  if (!trimmed) return
+  state.recent = [trimmed, ...state.recent.filter((item) => item !== trimmed)].slice(0, 8)
+  try {
+    localStorage.setItem('ourtube-recent', JSON.stringify(state.recent))
+  } catch (_error) {
+    // localStorage pode estar indisponível; buscas recentes são opcionais.
+  }
+  renderRecent()
+}
+
 async function loadSuggestions(term) {
   try {
     const suggestions = await api.suggestions(term)
@@ -297,146 +435,6 @@ async function loadSuggestions(term) {
   } catch (_error) {
     dom.suggestions.hidden = true
   }
-}
-
-function playNext() {
-  const following = nextTrack(state.queue, state.current?.videoId)
-  if (!following) {
-    setStatus('fim da fila', 'info')
-    return
-  }
-  location.hash = `#/watch/${following.videoId}`
-}
-
-function route() {
-  const hash = location.hash.replace(/^#/, '') || '/'
-  const [path, queryString] = hash.split('?')
-  const params = new URLSearchParams(queryString ?? '')
-  if (path === '/search') {
-    const query = params.get('q') ?? ''
-    dom.input.value = query
-    runSearch(query)
-    return
-  }
-  if (path.startsWith('/watch/')) {
-    watch(path.slice('/watch/'.length))
-    return
-  }
-  dom.input.value = ''
-  renderHome()
-}
-
-function wireEvents() {
-  dom.form.addEventListener('submit', (event) => {
-    event.preventDefault()
-    dom.suggestions.hidden = true
-    location.hash = `#/search?q=${encodeURIComponent(dom.input.value.trim())}`
-  })
-
-  let suggestTimer
-  dom.input.addEventListener('input', () => {
-    clearTimeout(suggestTimer)
-    const term = dom.input.value.trim()
-    if (term.length < 2) {
-      dom.suggestions.hidden = true
-      return
-    }
-    suggestTimer = setTimeout(() => loadSuggestions(term), 250)
-  })
-
-  dom.suggestions.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-term]')
-    if (!button) return
-    dom.input.value = button.dataset.term
-    dom.form.requestSubmit()
-  })
-
-  dom.recent.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-term]')
-    if (!button) return
-    dom.input.value = button.dataset.term
-    dom.form.requestSubmit()
-  })
-
-  dom.main.addEventListener('click', (event) => {
-    if (event.target.closest('[data-retry-home]')) {
-      state.homeLoaded = false
-      renderHome()
-      loadHome()
-      return
-    }
-    const row = event.target.closest('[data-video-id]')
-    if (!row) return
-    location.hash = `#/watch/${row.dataset.videoId}`
-  })
-
-  dom.playPause.addEventListener('click', () => {
-    if (dom.audio.paused) dom.audio.play().catch(() => setStatus('áudio indisponível', 'error'))
-    else dom.audio.pause()
-  })
-
-  dom.next.addEventListener('click', playNext)
-  dom.audio.addEventListener('ended', playNext)
-
-  // Some tracks only decode as Opus/WebM; retry once with the other container
-  // before telling the listener the track is unavailable.
-  dom.audio.addEventListener('error', () => {
-    if (!state.audioBase || state.containerFallback) {
-      setStatus('áudio indisponível para esta faixa', 'error')
-      return
-    }
-    state.containerFallback = true
-    dom.audio.src = `${state.audioBase}?container=webm`
-    dom.audio.load()
-    dom.audio.play().catch(() => setStatus('áudio indisponível para esta faixa', 'error'))
-  })
-  dom.audio.addEventListener('play', () => {
-    dom.iconPlay.hidden = true
-    dom.iconPause.hidden = false
-  })
-  dom.audio.addEventListener('pause', () => {
-    dom.iconPlay.hidden = false
-    dom.iconPause.hidden = true
-  })
-  dom.audio.addEventListener('loadedmetadata', () => {
-    if (Number.isFinite(dom.audio.duration))
-      dom.total.textContent = formatDuration(dom.audio.duration)
-  })
-  dom.audio.addEventListener('timeupdate', () => {
-    const ratio = dom.audio.duration ? dom.audio.currentTime / dom.audio.duration : 0
-    dom.progress.value = String(Math.round(ratio * 1000))
-    dom.elapsed.textContent = formatDuration(dom.audio.currentTime)
-  })
-  dom.progress.addEventListener('input', () => {
-    if (!dom.audio.duration) return
-    dom.audio.currentTime = (Number(dom.progress.value) / 1000) * dom.audio.duration
-  })
-
-  dom.account.addEventListener('click', () => {
-    if (state.account?.loggedIn) dom.logoutDialog.showModal()
-    else openLogin()
-  })
-
-  dom.loginDialog.addEventListener('close', () => clearInterval(state.loginTimer))
-
-  dom.logoutConfirm.addEventListener('click', async () => {
-    await api.authLogout()
-    dom.logoutDialog.close()
-    await refreshAccount()
-    await reloadMusic()
-  })
-
-  dom.theme.addEventListener('click', () => {
-    const light = document.documentElement.dataset.theme === 'light'
-    document.documentElement.dataset.theme = light ? 'dark' : 'light'
-    try {
-      localStorage.setItem('ourtube-theme', light ? 'dark' : 'light')
-    } catch (_error) {
-      // Persistir o tema é best-effort; o toggle vale para esta sessão.
-    }
-  })
-
-  window.addEventListener('hashchange', route)
 }
 
 async function refreshAccount() {
@@ -496,13 +494,176 @@ async function reloadMusic() {
   }
 }
 
+/* ── routing ────────────────────────────────────────────────────────────── */
+function route() {
+  dom.suggestions.hidden = true
+  const hash = location.hash.replace(/^#/, '') || '/'
+  const [path, queryString] = hash.split('?')
+  const params = new URLSearchParams(queryString ?? '')
+  if (path === '/search') {
+    const query = params.get('q') ?? ''
+    dom.input.value = query
+    runSearch(query)
+    return
+  }
+  if (path.startsWith('/watch/')) {
+    watch(path.slice('/watch/'.length))
+    return
+  }
+  dom.input.value = ''
+  if (path === '/favorites') {
+    renderFavorites()
+    return
+  }
+  renderHome()
+}
+
+/* ── events ─────────────────────────────────────────────────────────────── */
+function wireEvents() {
+  dom.form.addEventListener('submit', (event) => {
+    event.preventDefault()
+    dom.suggestions.hidden = true
+    location.hash = `#/search?q=${encodeURIComponent(dom.input.value.trim())}`
+  })
+
+  let suggestTimer
+  dom.input.addEventListener('input', () => {
+    clearTimeout(suggestTimer)
+    const term = dom.input.value.trim()
+    if (term.length < 2) {
+      dom.suggestions.hidden = true
+      return
+    }
+    suggestTimer = setTimeout(() => loadSuggestions(term), 250)
+  })
+
+  dom.suggestions.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-term]')
+    if (!button) return
+    dom.input.value = button.dataset.term
+    dom.form.requestSubmit()
+  })
+
+  dom.recent.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-term]')
+    if (!button) return
+    dom.input.value = button.dataset.term
+    dom.form.requestSubmit()
+  })
+
+  dom.chips.addEventListener('click', (event) => {
+    const chip = event.target.closest('[data-filter]')
+    if (!chip) return
+    state.filter = chip.dataset.filter
+    for (const item of dom.chips.querySelectorAll('.chip'))
+      item.classList.toggle('is-active', item === chip)
+    if (location.hash.startsWith('#/search')) {
+      renderSearch(
+        new URLSearchParams(location.hash.split('?')[1] ?? '').get('q') ?? '',
+        state.results,
+      )
+    }
+  })
+
+  dom.main.addEventListener('click', (event) => {
+    if (event.target.closest('[data-retry-home]')) {
+      state.homeLoaded = false
+      renderHome()
+      loadHome()
+      return
+    }
+    const row = event.target.closest('[data-video-id]')
+    if (!row) return
+    location.hash = `#/watch/${row.dataset.videoId}`
+  })
+
+  dom.favorites.addEventListener('click', () => {
+    location.hash = '#/favorites'
+  })
+
+  dom.heart.addEventListener('click', toggleCurrentFavorite)
+
+  dom.playPause.addEventListener('click', () => {
+    if (dom.audio.paused) dom.audio.play().catch(() => setStatus('áudio indisponível', 'error'))
+    else dom.audio.pause()
+  })
+
+  dom.next.addEventListener('click', () => step(1))
+  dom.prev.addEventListener('click', () => step(-1))
+  dom.audio.addEventListener('ended', () => step(1))
+  dom.audio.addEventListener('play', () => {
+    dom.iconPlay.hidden = true
+    dom.iconPause.hidden = false
+  })
+  dom.audio.addEventListener('pause', () => {
+    dom.iconPlay.hidden = false
+    dom.iconPause.hidden = true
+  })
+  dom.audio.addEventListener('error', () => {
+    if (!state.audioBase || state.containerFallback) {
+      setStatus('áudio indisponível para esta faixa', 'error')
+      return
+    }
+    state.containerFallback = true
+    dom.audio.src = `${state.audioBase}?container=webm`
+    dom.audio.load()
+    dom.audio.play().catch(() => setStatus('áudio indisponível para esta faixa', 'error'))
+  })
+  dom.audio.addEventListener('loadedmetadata', () => {
+    if (Number.isFinite(dom.audio.duration))
+      dom.total.textContent = formatDuration(dom.audio.duration)
+  })
+  dom.audio.addEventListener('timeupdate', () => {
+    const ratio = dom.audio.duration ? dom.audio.currentTime / dom.audio.duration : 0
+    dom.progress.value = String(Math.round(ratio * 1000))
+    dom.elapsed.textContent = formatDuration(dom.audio.currentTime)
+  })
+  dom.progress.addEventListener('input', () => {
+    if (!dom.audio.duration) return
+    dom.audio.currentTime = (Number(dom.progress.value) / 1000) * dom.audio.duration
+  })
+  dom.volume.addEventListener('input', () => {
+    dom.audio.volume = Number(dom.volume.value) / 100
+    try {
+      localStorage.setItem('ourtube-volume', dom.volume.value)
+    } catch (_error) {
+      // volume persistence is best-effort
+    }
+  })
+
+  dom.account.addEventListener('click', () => {
+    if (state.account?.loggedIn) dom.logoutDialog.showModal()
+    else openLogin()
+  })
+  dom.loginDialog.addEventListener('close', () => clearInterval(state.loginTimer))
+  dom.logoutConfirm.addEventListener('click', async () => {
+    await api.authLogout()
+    dom.logoutDialog.close()
+    await refreshAccount()
+    await reloadMusic()
+  })
+
+  dom.theme.addEventListener('click', () => {
+    const light = document.documentElement.dataset.theme === 'light'
+    document.documentElement.dataset.theme = light ? 'dark' : 'light'
+    try {
+      localStorage.setItem('ourtube-theme', light ? 'dark' : 'light')
+    } catch (_error) {
+      // Persistir o tema é best-effort; o toggle vale para esta sessão.
+    }
+  })
+
+  window.addEventListener('hashchange', route)
+}
+
 async function boot() {
   try {
     state.recent = JSON.parse(localStorage.getItem('ourtube-recent') ?? '[]')
   } catch (_error) {
     state.recent = []
   }
-  // Normaliza o tema: o webview pode herdar um valor antigo de localStorage.
+  state.favorites = readFavorites(localStorage.getItem('ourtube-favorites'))
+
   const savedTheme = (() => {
     try {
       return localStorage.getItem('ourtube-theme')
@@ -511,6 +672,16 @@ async function boot() {
     }
   })()
   document.documentElement.dataset.theme = savedTheme === 'light' ? 'light' : 'dark'
+
+  const savedVolume = (() => {
+    try {
+      return localStorage.getItem('ourtube-volume')
+    } catch (_error) {
+      return null
+    }
+  })()
+  if (savedVolume) dom.volume.value = savedVolume
+  dom.audio.volume = Number(dom.volume.value) / 100
 
   renderRecent()
   wireEvents()

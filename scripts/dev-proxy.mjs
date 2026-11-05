@@ -55,6 +55,16 @@ async function proxyCommand(command, request, response) {
     return
   }
   try {
+    if (command === 'auth_state') {
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({ loggedIn: false, displayName: '' }))
+      return
+    }
+    if (command === 'auth_logout') {
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+      response.end('null')
+      return
+    }
     if (command.startsWith('auth_')) {
       response.writeHead(501, { 'content-type': 'text/plain; charset=utf-8' })
       response.end('o login Google só funciona na janela Tauri (device flow local)')
