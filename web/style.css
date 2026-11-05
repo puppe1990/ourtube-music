@@ -1110,6 +1110,23 @@ input {
   text-decoration: underline;
 }
 
+.login-code-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+}
+
+.login-code-row .login-code {
+  flex: 1;
+  margin: 0;
+}
+
+.copy-button {
+  flex: none;
+  height: 44px;
+}
+
 .login-code {
   margin: 0 0 10px;
   padding: 14px;

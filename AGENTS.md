@@ -42,7 +42,9 @@ WEB_REMIX responde `UNPLAYABLE` no `/player`; o cliente IOS devolve URL direta d
 - Token em `<app_config_dir>/auth.json` `0600` (`src-tauri/src/session.rs`), com
   refresh 60 s antes de expirar; nunca Keychain (prompt a cada rebuild).
 - Requisições autenticadas mandam `Authorization: Bearer` + `X-Goog-AuthUser: 0`.
-- No preview do browser o login é 501: só a janela Tauri tem o fluxo.
+- O diálogo tem botão de copiar o código e abre `google.com/device` no navegador
+  do sistema via comando `open_external`, que só aceita https em `google.com`/
+  `www.google.com` (guard testado em Rust e JS).
 
 ## Estrutura
 

@@ -25,6 +25,7 @@ test('every mapped endpoint has a command', () => {
     'authState',
     'guide',
     'home',
+    'openExternal',
     'queue',
     'search',
     'stream',
@@ -65,6 +66,16 @@ test('audio resolves the local proxy url for a video', async () => {
   assert.deepEqual(calls, [
     { command: 'music_audio', args: { videoId } },
     { command: 'music_audio', args: { videoId, container: 'webm' } },
+  ])
+})
+
+test('openExternal sends the url to the shell', async () => {
+  const { calls, invoke } = recordingInvoke()
+
+  await createMusicApi(invoke).openExternal('https://www.google.com/device')
+
+  assert.deepEqual(calls, [
+    { command: 'open_external', args: { url: 'https://www.google.com/device' } },
   ])
 })
 

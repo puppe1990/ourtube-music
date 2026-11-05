@@ -11,6 +11,7 @@ export const COMMANDS = {
   authPoll: 'auth_poll',
   authState: 'auth_state',
   authLogout: 'auth_logout',
+  openExternal: 'open_external',
 }
 
 export function createMusicApi(invoke) {
@@ -28,6 +29,7 @@ export function createMusicApi(invoke) {
     authPoll: (deviceCode) => invoke(COMMANDS.authPoll, { deviceCode }),
     authState: () => invoke(COMMANDS.authState),
     authLogout: () => invoke(COMMANDS.authLogout),
+    openExternal: (url) => invoke(COMMANDS.openExternal, { url }),
   }
 }
 

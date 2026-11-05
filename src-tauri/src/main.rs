@@ -30,7 +30,8 @@ fn main() {
             ourtube_music::commands::auth_start,
             ourtube_music::commands::auth_poll,
             ourtube_music::commands::auth_state,
-            ourtube_music::commands::auth_logout
+            ourtube_music::commands::auth_logout,
+            ourtube_music::commands::open_external
         ])
         .run(tauri::generate_context!())
         .expect("falha ao abrir a janela do OurTube Music");

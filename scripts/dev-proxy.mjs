@@ -65,9 +65,29 @@ async function proxyCommand(command, request, response) {
       response.end('null')
       return
     }
-    if (command.startsWith('auth_')) {
-      response.writeHead(501, { 'content-type': 'text/plain; charset=utf-8' })
-      response.end('o login Google só funciona na janela Tauri (device flow local)')
+    // Preview stub: the real device flow lives in the Rust shell. This keeps
+    // the dialog (code + copy + link) testable in the browser.
+    if (command === 'auth_start') {
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(
+        JSON.stringify({
+          deviceCode: 'preview-device-code',
+          userCode: 'ABCD-EFGH',
+          verificationUrl: 'https://www.google.com/device',
+          expiresIn: 1800,
+          interval: 5,
+        }),
+      )
+      return
+    }
+    if (command === 'auth_poll') {
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify('pending'))
+      return
+    }
+    if (command === 'open_external') {
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+      response.end('null')
       return
     }
     if (command === 'music_audio') {

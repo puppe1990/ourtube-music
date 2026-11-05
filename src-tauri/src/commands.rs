@@ -89,6 +89,27 @@ pub struct AccountState {
     pub display_name: String,
 }
 
+/// Opens the Google device page in the system browser. Only https Google
+/// hosts are allowed: the webview must never hand an arbitrary URL to `open`.
+pub fn validate_external_url(url: &str) -> Result<url::Url, String> {
+    let parsed = url::Url::parse(url).map_err(|error| format!("invalid url \"{url}\": {error}"))?;
+    if parsed.scheme() != "https" {
+        return Err(format!("refusing to open non-https url \"{url}\""));
+    }
+    match parsed.host_str() {
+        Some("google.com") | Some("www.google.com") => Ok(parsed),
+        other => Err(format!(
+            "refusing to open host {other:?}: only the Google device page is allowed"
+        )),
+    }
+}
+
+#[tauri::command]
+pub fn open_external(url: String) -> Result<(), String> {
+    let parsed = validate_external_url(&url)?;
+    opener::open(parsed.as_str()).map_err(|error| format!("failed to open {url}: {error}"))
+}
+
 #[tauri::command]
 pub async fn auth_start() -> Result<DeviceStart, String> {
     let start = on_blocking_pool(auth::start_device_flow).await?;

@@ -1,4 +1,5 @@
 import { createMusicApi, resolveInvoker } from '/src/api.mjs'
+import { isSafeExternalUrl } from '/src/external.mjs'
 import { isFavorite, readFavorites, toggleFavorite } from '/src/favorites.mjs'
 import { formatBitrate, formatDuration, shorten } from '/src/format.mjs'
 import { greeting } from '/src/greeting.mjs'
@@ -49,7 +50,8 @@ const dom = {
   status: $('#status'),
   loginDialog: $('#login-dialog'),
   loginCode: $('#login-code'),
-  loginLink: $('#login-link'),
+  loginCopy: $('#login-copy'),
+  loginOpen: $('#login-open'),
   loginStatus: $('#login-status'),
   logoutDialog: $('#logout-dialog'),
   logoutConfirm: $('#logout-confirm'),
@@ -484,10 +486,57 @@ function clearPendingLogin() {
 }
 
 function showPendingLogin(pending, message) {
+  const url = pending.verificationUrl || 'https://www.google.com/device'
+  state.loginUrl = url
   dom.loginCode.textContent = pending.userCode
-  dom.loginLink.href = pending.verificationUrl || 'https://www.google.com/device'
-  dom.loginLink.textContent = dom.loginLink.href.replace(/^https?:\/\//, '')
+  dom.loginOpen.textContent = url.replace(/^https?:\/\//, '')
   dom.loginStatus.textContent = message
+}
+
+async function openDevicePage() {
+  const url = state.loginUrl || 'https://www.google.com/device'
+  if (!isSafeExternalUrl(url)) {
+    dom.loginStatus.textContent = `Link recusado: ${url}`
+    return
+  }
+  if (globalThis.__TAURI__?.core?.invoke) {
+    try {
+      await api.openExternal(url)
+      return
+    } catch (_error) {
+      // Falls through to window.open on shells without the opener command.
+    }
+  }
+  window.open(url, '_blank', 'noopener')
+}
+
+async function copyLoginCode() {
+  const code = dom.loginCode.textContent.trim()
+  if (!code || code === '—') return
+  const copied = await writeClipboard(code)
+  dom.loginCopy.textContent = copied ? 'Copiado!' : 'Não deu'
+  setTimeout(() => {
+    dom.loginCopy.textContent = 'Copiar'
+  }, 1600)
+}
+
+async function writeClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch (_error) {
+    // WKWebView can deny the async clipboard; the textarea path still works.
+  }
+  const helper = document.createElement('textarea')
+  helper.value = text
+  helper.setAttribute('readonly', '')
+  helper.style.position = 'fixed'
+  helper.style.opacity = '0'
+  document.body.append(helper)
+  helper.select()
+  const copied = document.execCommand('copy')
+  helper.remove()
+  return copied
 }
 
 async function openLogin() {
@@ -678,6 +727,9 @@ function wireEvents() {
       // volume persistence is best-effort
     }
   })
+
+  dom.loginCopy.addEventListener('click', copyLoginCode)
+  dom.loginOpen.addEventListener('click', openDevicePage)
 
   dom.account.addEventListener('click', () => {
     if (state.account?.loggedIn) dom.logoutDialog.showModal()
