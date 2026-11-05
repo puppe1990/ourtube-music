@@ -13,6 +13,9 @@ use serde_json::Value;
 pub const CLIENT_ID: &str =
     "861556708454-d6dlm3lh05idd8npek18k6be8ba3oc68.apps.googleusercontent.com";
 pub const SCOPE: &str = "https://www.googleapis.com/auth/youtube";
+/// The TV client is a "confidential" OAuth client: Google rejects the token
+/// exchange without this secret (`invalid_request: Missing ... client_secret`).
+pub const CLIENT_SECRET: &str = "SboVhoG9s0rNafixCSGGKXAT";
 pub const DEVICE_CODE_URL: &str = "https://oauth2.googleapis.com/device/code";
 pub const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 /// Refresh a minute early so a request never leaves with an expired token.
@@ -133,14 +136,31 @@ pub fn start_device_flow() -> Result<DeviceStart, String> {
     parse_device_start(&payload)
 }
 
+pub fn device_token_form(device_code: &str) -> Vec<(&'static str, String)> {
+    vec![
+        ("client_id", CLIENT_ID.to_string()),
+        ("client_secret", CLIENT_SECRET.to_string()),
+        ("device_code", device_code.to_string()),
+        (
+            "grant_type",
+            "urn:ietf:params:oauth:grant-type:device_code".to_string(),
+        ),
+    ]
+}
+
+pub fn refresh_form(refresh_token: &str) -> Vec<(&'static str, String)> {
+    vec![
+        ("client_id", CLIENT_ID.to_string()),
+        ("client_secret", CLIENT_SECRET.to_string()),
+        ("refresh_token", refresh_token.to_string()),
+        ("grant_type", "refresh_token".to_string()),
+    ]
+}
+
 pub fn poll_device_flow(device_code: &str) -> Result<PollOutcome, String> {
     let response = http()?
         .post(TOKEN_URL)
-        .form(&[
-            ("client_id", CLIENT_ID),
-            ("device_code", device_code),
-            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-        ])
+        .form(&device_token_form(device_code))
         .send()
         .map_err(|error| format!("POST token failed: {error}"))?;
     let payload: Value = response
@@ -152,11 +172,7 @@ pub fn poll_device_flow(device_code: &str) -> Result<PollOutcome, String> {
 pub fn refresh(refresh_token: &str) -> Result<PollOutcome, String> {
     let response = http()?
         .post(TOKEN_URL)
-        .form(&[
-            ("client_id", CLIENT_ID),
-            ("refresh_token", refresh_token),
-            ("grant_type", "refresh_token"),
-        ])
+        .form(&refresh_form(refresh_token))
         .send()
         .map_err(|error| format!("POST refresh failed: {error}"))?;
     let payload: Value = response

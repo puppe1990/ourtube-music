@@ -448,16 +448,62 @@ async function refreshAccount() {
   }
 }
 
+const LOGIN_KEY = 'ourtube-login'
+
+// The device code has to survive a window reload: if the app restarts while
+// the user is authorizing on Google, the next boot resumes the same poll.
+function readPendingLogin() {
+  try {
+    const pending = JSON.parse(localStorage.getItem(LOGIN_KEY) ?? 'null')
+    if (!pending?.deviceCode || !pending?.expiresAt) return null
+    if (Date.now() > pending.expiresAt) {
+      localStorage.removeItem(LOGIN_KEY)
+      return null
+    }
+    return pending
+  } catch (_error) {
+    return null
+  }
+}
+
+function savePendingLogin(start) {
+  try {
+    const expiresAt = Date.now() + (Number(start.expiresIn) || 1800) * 1000
+    localStorage.setItem(LOGIN_KEY, JSON.stringify({ ...start, expiresAt }))
+  } catch (_error) {
+    // Sem storage o fluxo continua valendo para esta sessão.
+  }
+}
+
+function clearPendingLogin() {
+  try {
+    localStorage.removeItem(LOGIN_KEY)
+  } catch (_error) {
+    // ignore
+  }
+}
+
+function showPendingLogin(pending, message) {
+  dom.loginCode.textContent = pending.userCode
+  dom.loginLink.href = pending.verificationUrl || 'https://www.google.com/device'
+  dom.loginLink.textContent = dom.loginLink.href.replace(/^https?:\/\//, '')
+  dom.loginStatus.textContent = message
+}
+
 async function openLogin() {
+  dom.loginDialog.showModal()
+  const pending = readPendingLogin()
+  if (pending) {
+    showPendingLogin(pending, 'Retomando o login que ficou pela metade…')
+    pollLogin(pending)
+    return
+  }
   dom.loginCode.textContent = '—'
   dom.loginStatus.textContent = 'Gerando código…'
-  dom.loginDialog.showModal()
   try {
     const start = await api.authStart()
-    dom.loginCode.textContent = start.userCode
-    dom.loginLink.href = start.verificationUrl || 'https://www.google.com/device'
-    dom.loginLink.textContent = dom.loginLink.href.replace(/^https?:\/\//, '')
-    dom.loginStatus.textContent = pollLabel('pending')
+    savePendingLogin(start)
+    showPendingLogin(start, pollLabel('pending'))
     pollLogin(start)
   } catch (error) {
     dom.loginStatus.textContent = `Login indisponível: ${error.message}`
@@ -475,11 +521,13 @@ function pollLogin(start) {
       dom.loginStatus.textContent = pollLabel(status)
       if (status !== 'authorized') return
       clearInterval(state.loginTimer)
+      clearPendingLogin()
       await refreshAccount()
       await reloadMusic()
       setTimeout(() => dom.loginDialog.close(), 700)
     } catch (error) {
       clearInterval(state.loginTimer)
+      clearPendingLogin()
       dom.loginStatus.textContent = pollLabel('error', error.message)
     }
   }, interval)
@@ -635,7 +683,8 @@ function wireEvents() {
     if (state.account?.loggedIn) dom.logoutDialog.showModal()
     else openLogin()
   })
-  dom.loginDialog.addEventListener('close', () => clearInterval(state.loginTimer))
+  // Closing the dialog keeps the poll alive: Google can take a couple of
+  // minutes and the token must still land when the user approves.
   dom.logoutConfirm.addEventListener('click', async () => {
     await api.authLogout()
     dom.logoutDialog.close()
@@ -686,6 +735,13 @@ async function boot() {
   renderRecent()
   wireEvents()
   route()
+
+  const pendingLogin = readPendingLogin()
+  if (pendingLogin) {
+    dom.loginDialog.showModal()
+    showPendingLogin(pendingLogin, 'Retomando o login que ficou pela metade…')
+    pollLogin(pendingLogin)
+  }
 
   api
     .guide()

@@ -91,7 +91,9 @@ pub struct AccountState {
 
 #[tauri::command]
 pub async fn auth_start() -> Result<DeviceStart, String> {
-    on_blocking_pool(auth::start_device_flow).await
+    let start = on_blocking_pool(auth::start_device_flow).await?;
+    println!("auth start: code={} expires={}s", start.user_code, start.expires_in);
+    Ok(start)
 }
 
 /// Returns `pending`, `slow_down` or `authorized`; the UI polls every
@@ -103,6 +105,8 @@ pub async fn auth_poll(
 ) -> Result<String, String> {
     let session = Arc::clone(session.inner());
     on_blocking_pool(move || match auth::poll_device_flow(&device_code)? {
+        // Unauthorized yet: Google answers authorization_pending on every poll.
+
         PollOutcome::Pending => Ok("pending".to_string()),
         PollOutcome::SlowDown => Ok("slow_down".to_string()),
         PollOutcome::Token(tokens) => {

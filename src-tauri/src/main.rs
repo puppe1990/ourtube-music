@@ -11,6 +11,7 @@ fn main() {
     tauri::Builder::default()
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
+            println!("auth dir: {}", dir.display());
             let session = Arc::new(AuthSession::load(dir));
             let proxy = audio_proxy::start(Arc::clone(&session))?;
             app.manage(session);

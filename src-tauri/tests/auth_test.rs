@@ -1,7 +1,8 @@
 use fake::faker::lorem::en::Word;
 use fake::Fake;
 use ourtube_music::auth::{
-    auth_header, needs_refresh, parse_device_start, parse_poll, PollOutcome, TokenSet,
+    auth_header, device_token_form, needs_refresh, parse_device_start, parse_poll, refresh_form,
+    PollOutcome, TokenSet, CLIENT_SECRET,
 };
 use serde_json::json;
 
@@ -69,6 +70,31 @@ fn refresh_response_without_refresh_token_keeps_the_previous_one() {
     };
 
     assert_eq!(tokens.refresh_token, previous);
+}
+
+#[test]
+fn token_exchange_carries_the_client_secret() {
+    // Google answers `invalid_request: Missing required parameter: client_secret`
+    // for the TV client without it (probed 2026-11-05).
+    let form = device_token_form("device-123");
+    let field = |name: &str| form.iter().find(|(key, _)| *key == name).map(|(_, value)| value.as_str());
+
+    assert_eq!(field("client_secret"), Some(CLIENT_SECRET));
+    assert_eq!(field("device_code"), Some("device-123"));
+    assert_eq!(
+        field("grant_type"),
+        Some("urn:ietf:params:oauth:grant-type:device_code")
+    );
+}
+
+#[test]
+fn refresh_exchange_carries_the_client_secret() {
+    let form = refresh_form("refresh-123");
+    let field = |name: &str| form.iter().find(|(key, _)| *key == name).map(|(_, value)| value.as_str());
+
+    assert_eq!(field("client_secret"), Some(CLIENT_SECRET));
+    assert_eq!(field("refresh_token"), Some("refresh-123"));
+    assert_eq!(field("grant_type"), Some("refresh_token"));
 }
 
 #[test]
