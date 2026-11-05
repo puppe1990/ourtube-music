@@ -11,6 +11,24 @@ use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 
 pub const ORIGIN: &str = "https://music.youtube.com";
+
+/// Only the YouTube/Google session cookies are forwarded. Sending the whole
+/// jar — especially the `__Host-*` entries — makes Innertube treat the request
+/// as anonymous (probed 2026-11-05).
+pub const AUTH_COOKIE_NAMES: [&str; 12] = [
+    "SID",
+    "HSID",
+    "SSID",
+    "APISID",
+    "SAPISID",
+    "__Secure-1PSID",
+    "__Secure-3PSID",
+    "__Secure-1PAPISID",
+    "__Secure-3PAPISID",
+    "SIDCC",
+    "__Secure-1PSIDCC",
+    "__Secure-3PSIDCC",
+];
 pub const CREDENTIALS_FILE: &str = "credentials.json";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,11 +53,16 @@ pub fn sapisid_hash(sapisid: &str, timestamp: i64) -> String {
 }
 
 pub fn cookie_header(pairs: &[(String, String)]) -> String {
-    pairs
-        .iter()
-        .map(|(name, value)| format!("{name}={value}"))
-        .collect::<Vec<_>>()
-        .join("; ")
+    let mut seen: Vec<&str> = Vec::new();
+    let mut header = Vec::new();
+    for (name, value) in pairs {
+        if !AUTH_COOKIE_NAMES.contains(&name.as_str()) || seen.contains(&name.as_str()) {
+            continue;
+        }
+        seen.push(name);
+        header.push(format!("{name}={value}"));
+    }
+    header.join("; ")
 }
 
 /// Picks the signing cookie out of a session dump. `SAPISID` is preferred;

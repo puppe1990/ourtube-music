@@ -12,13 +12,27 @@ fn sapisid_hash_matches_the_web_scheme() {
 }
 
 #[test]
-fn cookie_header_joins_pairs_in_order() {
+fn cookie_header_keeps_only_the_auth_cookies() {
     let pairs = vec![
         ("SAPISID".to_string(), "abc".to_string()),
+        ("__Host-GAPS".to_string(), "junk".to_string()),
         ("SID".to_string(), "def".to_string()),
     ];
 
+    // __Host-* cookies make Innertube answer as anonymous (probed 2026-11-05).
     assert_eq!(cookie_header(&pairs), "SAPISID=abc; SID=def");
+}
+
+#[test]
+fn cookie_header_keeps_the_first_value_of_each_name() {
+    // The jar carries .google.com and .youtube.com entries; duplicates make the
+    // server ignore the session.
+    let pairs = vec![
+        ("SAPISID".to_string(), "google".to_string()),
+        ("SAPISID".to_string(), "youtube".to_string()),
+    ];
+
+    assert_eq!(cookie_header(&pairs), "SAPISID=google");
 }
 
 #[test]
