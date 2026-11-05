@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::thread;
 
 use crate::innertube::client::{AudioResponse, MusicClient};
+use crate::session::AuthSession;
 
 const MAX_HEAD_BYTES: usize = 8 * 1024;
 
@@ -84,14 +85,14 @@ where
     None
 }
 
-pub fn start(client: Arc<MusicClient>) -> io::Result<AudioProxy> {
+pub fn start(session: Arc<AuthSession>) -> io::Result<AudioProxy> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
     thread::spawn(move || {
         for connection in listener.incoming().flatten() {
-            let client = Arc::clone(&client);
+            let session = Arc::clone(&session);
             thread::spawn(move || {
-                let _ = serve(connection, client);
+                let _ = serve(connection, session);
             });
         }
     });
@@ -100,7 +101,7 @@ pub fn start(client: Arc<MusicClient>) -> io::Result<AudioProxy> {
     Ok(AudioProxy { base_url })
 }
 
-fn serve(mut connection: TcpStream, client: Arc<MusicClient>) -> io::Result<()> {
+fn serve(mut connection: TcpStream, session: Arc<AuthSession>) -> io::Result<()> {
     let head = read_head(&mut connection)?;
     let mut lines = head.split("\r\n");
     let Some(request) = lines.next().and_then(parse_request_line) else {
@@ -108,6 +109,8 @@ fn serve(mut connection: TcpStream, client: Arc<MusicClient>) -> io::Result<()> 
     };
     let range = range_header(&mut lines);
 
+    let token = session.access_token().unwrap_or(None);
+    let client = MusicClient::new().with_token(token);
     let media = match client.open_audio(&request.video_id, request.container.as_deref(), range.as_deref()) {
         Ok(media) => media,
         Err(error) => return write_plain(&mut connection, 502, &error),

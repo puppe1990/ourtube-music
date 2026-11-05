@@ -1,6 +1,7 @@
 import { createMusicApi, resolveInvoker } from '/src/api.mjs'
 import { formatBitrate, formatDuration, shorten } from '/src/format.mjs'
 import { nextTrack, upNext } from '/src/queue.mjs'
+import { accountLabel, pollLabel } from '/src/session.mjs'
 
 const api = createMusicApi(resolveInvoker())
 const state = { shelves: [], results: [], queue: [], current: null, recent: [] }
@@ -12,6 +13,12 @@ const dom = {
   input: document.querySelector('#search-input'),
   suggestions: document.querySelector('#suggestions'),
   account: document.querySelector('#account'),
+  loginDialog: document.querySelector('#login-dialog'),
+  loginCode: document.querySelector('#login-code'),
+  loginLink: document.querySelector('#login-link'),
+  loginStatus: document.querySelector('#login-status'),
+  logoutDialog: document.querySelector('#logout-dialog'),
+  logoutConfirm: document.querySelector('#logout-confirm'),
   theme: document.querySelector('#theme-toggle'),
   recent: document.querySelector('#recent'),
   player: document.querySelector('#player'),
@@ -405,6 +412,20 @@ function wireEvents() {
     dom.audio.currentTime = (Number(dom.progress.value) / 1000) * dom.audio.duration
   })
 
+  dom.account.addEventListener('click', () => {
+    if (state.account?.loggedIn) dom.logoutDialog.showModal()
+    else openLogin()
+  })
+
+  dom.loginDialog.addEventListener('close', () => clearInterval(state.loginTimer))
+
+  dom.logoutConfirm.addEventListener('click', async () => {
+    await api.authLogout()
+    dom.logoutDialog.close()
+    await refreshAccount()
+    await reloadMusic()
+  })
+
   dom.theme.addEventListener('click', () => {
     const light = document.documentElement.dataset.theme === 'light'
     document.documentElement.dataset.theme = light ? 'dark' : 'light'
@@ -416,6 +437,63 @@ function wireEvents() {
   })
 
   window.addEventListener('hashchange', route)
+}
+
+async function refreshAccount() {
+  try {
+    const account = await api.authState()
+    state.account = account
+    dom.account.textContent = accountLabel(account)
+    dom.account.dataset.loggedIn = account?.loggedIn ? 'true' : 'false'
+  } catch (_error) {
+    dom.account.textContent = accountLabel(null)
+  }
+}
+
+async function openLogin() {
+  dom.loginCode.textContent = '—'
+  dom.loginStatus.textContent = 'Gerando código…'
+  dom.loginDialog.showModal()
+  try {
+    const start = await api.authStart()
+    dom.loginCode.textContent = start.userCode
+    dom.loginLink.href = start.verificationUrl || 'https://www.google.com/device'
+    dom.loginLink.textContent = dom.loginLink.href.replace(/^https?:\/\//, '')
+    dom.loginStatus.textContent = pollLabel('pending')
+    pollLogin(start)
+  } catch (error) {
+    dom.loginStatus.textContent = `Login indisponível: ${error.message}`
+  }
+}
+
+// The device flow asks the user to authorize on Google; polling stops on the
+// first authorized/error answer so we never keep a timer after the dialog.
+function pollLogin(start) {
+  clearInterval(state.loginTimer)
+  const interval = Math.max(Number(start.interval) || 5, 5) * 1000
+  state.loginTimer = setInterval(async () => {
+    try {
+      const status = await api.authPoll(start.deviceCode)
+      dom.loginStatus.textContent = pollLabel(status)
+      if (status !== 'authorized') return
+      clearInterval(state.loginTimer)
+      await refreshAccount()
+      await reloadMusic()
+      setTimeout(() => dom.loginDialog.close(), 700)
+    } catch (error) {
+      clearInterval(state.loginTimer)
+      dom.loginStatus.textContent = pollLabel('error', error.message)
+    }
+  }, interval)
+}
+
+async function reloadMusic() {
+  state.shelves = []
+  state.homeLoaded = false
+  if (isHomeRoute()) {
+    renderHome()
+    await loadHome()
+  }
 }
 
 async function boot() {
@@ -442,12 +520,7 @@ async function boot() {
     .guide()
     .then(renderGuide)
     .catch(() => renderGuide([{ label: 'Home', browseId: 'FEmusic_home' }]))
-  api
-    .account()
-    .then((account) => {
-      dom.account.textContent = account?.displayName || 'visitante'
-    })
-    .catch(() => {})
+  await refreshAccount()
 
   if (!state.shelves.length) await loadHome()
 }

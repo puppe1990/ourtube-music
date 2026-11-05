@@ -77,6 +77,7 @@ pub struct AudioResponse {
 pub struct MusicClient {
     base_url: String,
     http: reqwest::blocking::Client,
+    token: Option<String>,
 }
 
 impl Default for MusicClient {
@@ -98,7 +99,15 @@ impl MusicClient {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             http,
+            token: None,
         }
+    }
+
+    /// Signed-in calls send `Authorization: Bearer` plus `X-Goog-AuthUser: 0`,
+    /// the same pair ytmusicapi uses with an OAuth token.
+    pub fn with_token(mut self, token: Option<String>) -> Self {
+        self.token = token;
+        self
     }
 
     /// The anonymous home feed (`FEmusic_home`) intermittently answers with no
@@ -199,12 +208,18 @@ impl MusicClient {
 
     fn call(&self, endpoint: &str, body: Value) -> Result<Value, String> {
         let url = format!("{}{endpoint}?prettyPrint=false", self.base_url);
-        let response = self
+        let mut request = self
             .http
             .post(&url)
             .header("content-type", "application/json")
             .header("user-agent", USER_AGENT)
-            .json(&body)
+            .json(&body);
+        if let Some(token) = &self.token {
+            request = request
+                .header("authorization", crate::auth::auth_header(token))
+                .header("x-goog-authuser", "0");
+        }
+        let response = request
             .send()
             .map_err(|error| format!("POST {endpoint} failed: {error}"))?;
         let status = response.status();

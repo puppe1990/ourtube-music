@@ -19,6 +19,10 @@ test('every mapped endpoint has a command', () => {
   assert.deepEqual(Object.keys(COMMANDS).sort(), [
     'account',
     'audio',
+    'authLogout',
+    'authPoll',
+    'authStart',
+    'authState',
     'guide',
     'home',
     'queue',
@@ -62,6 +66,15 @@ test('audio resolves the local proxy url for a video', async () => {
     { command: 'music_audio', args: { videoId } },
     { command: 'music_audio', args: { videoId, container: 'webm' } },
   ])
+})
+
+test('auth poll sends the device code', async () => {
+  const deviceCode = faker.string.alphanumeric(24)
+  const { calls, invoke } = recordingInvoke()
+
+  await createMusicApi(invoke).authPoll(deviceCode)
+
+  assert.deepEqual(calls, [{ command: 'auth_poll', args: { deviceCode } }])
 })
 
 test('home, guide and account need no arguments', async () => {

@@ -48,7 +48,7 @@
         </form>
 
         <div class="topbar-actions">
-          <span id="account" class="account">visitante</span>
+          <button id="account" class="account" type="button">Entrar com Google</button>
           <button id="theme-toggle" class="icon-button" type="button" aria-label="Alternar tema">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
               <circle cx="12" cy="12" r="4"></circle>
@@ -118,6 +118,31 @@
         <audio id="audio" preload="none"></audio>
       </footer>
     </div>
+
+    <dialog id="login-dialog" class="dialog">
+      <h2>Entrar com Google</h2>
+      <p class="dialog-hint">
+        Abra
+        <a id="login-link" href="https://www.google.com/device" target="_blank" rel="noreferrer"
+          >google.com/device</a
+        >
+        e digite o código abaixo.
+      </p>
+      <p id="login-code" class="login-code">—</p>
+      <p id="login-status" class="dialog-status" role="status">Gerando código…</p>
+      <form method="dialog" class="dialog-actions">
+        <button class="ghost-button" type="submit">Fechar</button>
+      </form>
+    </dialog>
+
+    <dialog id="logout-dialog" class="dialog">
+      <h2>Sair da conta?</h2>
+      <p class="dialog-hint">O app volta ao modo visitante e o token local é apagado.</p>
+      <div class="dialog-actions">
+        <form method="dialog"><button class="ghost-button" type="submit">Cancelar</button></form>
+        <button id="logout-confirm" class="danger-button" type="button">Sair</button>
+      </div>
+    </dialog>
 
     <script type="module" src="/app.js"></script>
   </body>

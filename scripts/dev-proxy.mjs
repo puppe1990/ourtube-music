@@ -55,6 +55,11 @@ async function proxyCommand(command, request, response) {
     return
   }
   try {
+    if (command.startsWith('auth_')) {
+      response.writeHead(501, { 'content-type': 'text/plain; charset=utf-8' })
+      response.end('o login Google só funciona na janela Tauri (device flow local)')
+      return
+    }
     if (command === 'music_audio') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
       response.end(JSON.stringify(`/audio/${args.videoId}`))

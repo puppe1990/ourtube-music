@@ -35,6 +35,15 @@ Pre-commit: lint-staged + `npm test`. CI: `.github/workflows/ci.yml` (Node + Rus
 WEB_REMIX responde `UNPLAYABLE` no `/player`; o cliente IOS devolve URL direta do
 `googlevideo.com` (sondado em 05/11/2026). Não troque isso sem testar o `/player` de verdade.
 
+## Login
+
+- Device flow OAuth (`src-tauri/src/auth.rs`): `device/code` → código na tela →
+  `token` com `grant_type=urn:ietf:params:oauth:grant-type:device_code`.
+- Token em `<app_config_dir>/auth.json` `0600` (`src-tauri/src/session.rs`), com
+  refresh 60 s antes de expirar; nunca Keychain (prompt a cada rebuild).
+- Requisições autenticadas mandam `Authorization: Bearer` + `X-Goog-AuthUser: 0`.
+- No preview do browser o login é 501: só a janela Tauri tem o fluxo.
+
 ## Estrutura
 
 | Caminho                                | Responsabilidade                                  |

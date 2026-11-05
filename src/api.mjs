@@ -7,6 +7,10 @@ export const COMMANDS = {
   guide: 'music_guide',
   account: 'music_account',
   audio: 'music_audio',
+  authStart: 'auth_start',
+  authPoll: 'auth_poll',
+  authState: 'auth_state',
+  authLogout: 'auth_logout',
 }
 
 export function createMusicApi(invoke) {
@@ -20,6 +24,10 @@ export function createMusicApi(invoke) {
     account: () => invoke(COMMANDS.account),
     audio: (videoId, container) =>
       invoke(COMMANDS.audio, container ? { videoId, container } : { videoId }),
+    authStart: () => invoke(COMMANDS.authStart),
+    authPoll: (deviceCode) => invoke(COMMANDS.authPoll, { deviceCode }),
+    authState: () => invoke(COMMANDS.authState),
+    authLogout: () => invoke(COMMANDS.authLogout),
   }
 }
 

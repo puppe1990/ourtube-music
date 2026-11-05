@@ -19,6 +19,17 @@ decifrada com `SSLKEYLOGFILE` em 05/11/2026.
 O `/player` do cliente WEB_REMIX devolve `UNPLAYABLE`; o cliente IOS devolve URL direta
 do `googlevideo.com` (testada com `Range` → `206 audio/mp4`).
 
+## Login (Google device flow)
+
+O app entra com a conta Google sem capturar cookie: pede um código ao
+`https://oauth2.googleapis.com/device/code` (client do YouTube TV, escopo
+`.../auth/youtube`), mostra o código no modal e faz polling do
+`https://oauth2.googleapis.com/token` com `grant_type=...device_code` até você
+autorizar em `google.com/device`. O refresh token fica em
+`<app-config-dir>/auth.json` com permissão `0600`; as chamadas Innertube passam
+a levar `Authorization: Bearer <token>` e `X-Goog-AuthUser: 0`, então home,
+biblioteca e player respondem já com a sua conta.
+
 ## Rodar
 
 ```bash
