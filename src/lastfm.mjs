@@ -25,11 +25,33 @@ export function lastFmMissingKeysError() {
   return `Crie um app em ${LASTFM_ACCOUNT_URL} e coloque LASTFM_API_KEY e LASTFM_API_SECRET no ambiente, ou em lastfm.json na pasta de configuração do OurTube Music.`
 }
 
+const VIEW_OR_PLAY = /(tocou|visualiza|\bviews?\b|\bplays?\b|reprodu)/i
+
+function looksLikeClock(text) {
+  return text.length > 0 && text.length <= 8 && text.includes(':') && /^[\d:]+$/.test(text)
+}
+
+function isCatalogType(text) {
+  return /^(álbum|album|ep|single|playlist|mixtape)$/i.test(text)
+}
+
+export function lastFmCredit(track) {
+  const parts = [track?.artist, track?.album]
+    .flatMap((value) => String(value ?? '').split('•'))
+    .map((part) => part.trim())
+    .filter((part) => part && !VIEW_OR_PLAY.test(part) && !looksLikeClock(part))
+
+  if (parts.length === 0) return { artist: '', album: '' }
+  if (isCatalogType(parts[0])) return { artist: parts[1] ?? '', album: parts[0] }
+  return { artist: parts[0], album: parts[1] ?? '' }
+}
+
 export function nowPlayingPayload(track, { durationSec } = {}) {
+  const { artist, album } = lastFmCredit(track)
   return {
-    artist: track.artist,
+    artist,
     track: track.title,
-    album: track.album || '',
+    album,
     duration: Number.isFinite(durationSec) ? Math.floor(durationSec) : 0,
   }
 }
@@ -42,7 +64,7 @@ export function scrobblePayload(track, { timestamp, durationSec }) {
 }
 
 function hasCredit(track) {
-  return Boolean(track?.artist && track?.title)
+  return Boolean(lastFmCredit(track).artist && track?.title)
 }
 
 export function createLastFmScrobbler({

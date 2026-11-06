@@ -86,6 +86,39 @@ test('nowPlayingPayload maps the playing row onto the Last.fm write fields', () 
   })
 })
 
+test('nowPlayingPayload takes the artist and album out of a YouTube byline', () => {
+  const track = fakeTrack()
+  const views = `${faker.number.int({ min: 20, max: 900 })} mil visualizações`
+
+  assert.deepEqual(
+    nowPlayingPayload(
+      {
+        ...track,
+        artist: `${track.artist} • ${track.album} • ${views}`,
+        album: '',
+      },
+      { durationSec: 200 },
+    ),
+    {
+      artist: track.artist,
+      track: track.title,
+      album: track.album,
+      duration: 200,
+    },
+  )
+})
+
+test('nowPlayingPayload drops a view-count standing in for the album', () => {
+  const track = fakeTrack()
+  const views = `${faker.number.int({ min: 40, max: 800 })} mil visualizações`
+
+  const payload = nowPlayingPayload({ ...track, album: views }, { durationSec: 180 })
+
+  assert.equal(payload.artist, track.artist)
+  assert.equal(payload.track, track.title)
+  assert.equal(payload.album, '')
+})
+
 test('the scrobbler announces now playing and scrobbles once when the rule is met', async () => {
   const started = 1_700_000_000
   const calls = { now: [], scrobble: [] }

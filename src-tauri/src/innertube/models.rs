@@ -101,6 +101,25 @@ pub struct GuideEntry {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LyricCue {
+    pub text: String,
+    pub start_ms: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Lyrics {
+    pub lines: Vec<String>,
+    #[serde(default)]
+    pub cues: Vec<LyricCue>,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Account {
     pub display_name: String,
     #[serde(default)]

@@ -10,10 +10,10 @@ use crate::innertube::endpoints::{
     USER_AGENT, VR_ANDROID_SDK, VR_CLIENT_NAME, VR_CLIENT_VERSION, VR_DEVICE_MAKE, VR_DEVICE_MODEL,
     VR_OS_VERSION, VR_USER_AGENT, WEB_CLIENT_NAME, WEB_CLIENT_VERSION,
 };
-use crate::innertube::models::{Account, GuideEntry, HomeFeed, Stream, Track};
+use crate::innertube::models::{Account, GuideEntry, HomeFeed, Lyrics, Stream, Track};
 use crate::innertube::parsers::{
-    parse_account, parse_guide, parse_home_feed, parse_list_account_rows, parse_queue,
-    parse_search_results, parse_stream_with, parse_suggestions,
+    parse_account, parse_guide, parse_home_feed, parse_list_account_rows, parse_lyrics,
+    parse_lyrics_browse_id, parse_queue, parse_search_results, parse_stream_with, parse_suggestions,
 };
 
 pub const HOME_BROWSE_IDS: [&str; 2] = ["FEmusic_home", "FEmusic_explore"];
@@ -230,6 +230,37 @@ impl MusicClient {
     pub fn search(&self, query: &str) -> Result<Vec<Track>, String> {
         let payload = self.call(SEARCH, request_body(SEARCH, json!({ "query": query })))?;
         parse_search_results(&payload)
+    }
+
+    pub fn lyrics(
+        &self,
+        video_id: &str,
+        title: &str,
+        artist: &str,
+        duration_sec: f64,
+    ) -> Result<Lyrics, String> {
+        let lyrics = self.innertube_lyrics(video_id)?;
+        if let Some(lrc) = crate::lrclib::fetch_synced_lyrics(title, artist, duration_sec) {
+            return Ok(crate::lrclib::overlay_synced(&lyrics, &lrc));
+        }
+        Ok(lyrics)
+    }
+
+    fn innertube_lyrics(&self, video_id: &str) -> Result<Lyrics, String> {
+        let id = video_id.trim();
+        if id.is_empty() {
+            return Err("video id is empty".into());
+        }
+        let next = self.call(NEXT, request_body(NEXT, json!({ "videoId": id })))?;
+        let browse_id = parse_lyrics_browse_id(&next);
+        if browse_id.is_empty() {
+            return Ok(Lyrics {
+                message: "Letra não disponível".into(),
+                ..Lyrics::default()
+            });
+        }
+        let payload = self.call(BROWSE, request_body(BROWSE, json!({ "browseId": browse_id })))?;
+        parse_lyrics(&payload)
     }
 
     pub fn queue(&self, video_id: &str, playlist_id: &str) -> Result<Vec<Track>, String> {

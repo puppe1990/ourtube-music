@@ -33,6 +33,7 @@ test('every mapped endpoint has a command', () => {
     'lastfmNowPlaying',
     'lastfmScrobble',
     'lastfmState',
+    'lyrics',
     'queue',
     'search',
     'stream',
@@ -96,6 +97,29 @@ test('browser login and check need no arguments', async () => {
     calls.map((call) => call.command),
     ['auth_browser_login', 'auth_check'],
   )
+})
+
+test('lyrics sends the playing video id', async () => {
+  const videoId = faker.string.alphanumeric(11)
+  const { calls, invoke } = recordingInvoke()
+
+  await createMusicApi(invoke).lyrics(videoId)
+
+  assert.deepEqual(calls, [{ command: 'music_lyrics', args: { videoId } }])
+})
+
+test('lyrics forwards title artist and duration for the synced lookup', async () => {
+  const videoId = faker.string.alphanumeric(11)
+  const title = faker.music.songName()
+  const artist = faker.music.artist()
+  const durationSec = faker.number.int({ min: 90, max: 420 })
+  const { calls, invoke } = recordingInvoke()
+
+  await createMusicApi(invoke).lyrics(videoId, { title, artist, durationSec })
+
+  assert.deepEqual(calls, [
+    { command: 'music_lyrics', args: { videoId, title, artist, durationSec } },
+  ])
 })
 
 test('browse sends the Innertube browse id', async () => {

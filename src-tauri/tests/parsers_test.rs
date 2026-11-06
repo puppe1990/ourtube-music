@@ -3,7 +3,8 @@ use fake::faker::name::en::Name;
 use fake::Fake;
 use ourtube_music::innertube::parsers::{
     parse_account, parse_guide, parse_home_feed, parse_home_shelves, parse_list_accounts,
-    parse_queue, parse_search_results, parse_stream, parse_suggestions,
+    parse_lyrics, parse_lyrics_browse_id, parse_queue, parse_search_results, parse_stream,
+    parse_suggestions,
 };
 use serde_json::{json, Value};
 
@@ -400,6 +401,30 @@ fn queue_reads_playlist_panel_rows_in_order() {
     assert_eq!(tracks[0].video_id, "q-1");
     assert_eq!(tracks[1].title, "Second");
     assert_eq!(tracks[0].duration, "4:02");
+}
+
+#[test]
+fn queue_splits_artist_and_album_out_of_a_youtube_byline() {
+    let artist: String = Name().fake();
+    let album: String = Sentence(1..3).fake();
+    let title: String = Sentence(1..3).fake();
+    let video_id: String = Name().fake();
+    let views = format!("{} mil visualizações", 20 + (title.len() % 800));
+
+    let payload = json!({ "contents": { "playlistPanelRenderer": { "contents": [
+        { "playlistPanelVideoRenderer": {
+            "videoId": video_id,
+            "title": runs(&[&title]),
+            "longBylineText": runs(&[&format!("{artist} • {album} • {views}")]),
+            "lengthText": runs(&["3:41"]),
+            "thumbnail": thumbnails(&["https://img/q"])
+        } }
+    ] } } });
+
+    let track = &parse_queue(&payload).expect("parse queue")[0];
+    assert_eq!(track.title, title);
+    assert_eq!(track.artist, artist);
+    assert_eq!(track.album, album);
 }
 
 #[test]
@@ -922,4 +947,119 @@ fn top_song_keeps_the_album_column_when_it_repeats_the_title() {
     assert_eq!(track.artist, artist);
     assert_eq!(track.album, song);
     assert_eq!(track.play_count, play_count);
+}
+
+#[test]
+fn top_song_keeps_views_as_play_count_instead_of_the_album() {
+    let artist: String = Name().fake();
+    let song: String = Sentence(1..3).fake();
+    let album: String = Sentence(1..3).fake();
+    let video_id: String = Name().fake();
+    let play_count = format!("{} mil visualizações", 40 + (song.len() % 800));
+
+    let payload = json!({
+        "contents": { "musicShelfRenderer": {
+            "title": runs(&["Top músicas"]),
+            "contents": [{ "musicResponsiveListItemRenderer": {
+                "flexColumns": [
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": runs(&[&song]) } },
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": runs(&[&artist]) } },
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": runs(&[&play_count]) } },
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": runs(&[&album]) } }
+                ],
+                "playlistItemData": { "videoId": video_id }
+            } }]
+        } }
+    });
+
+    let track = &parse_home_feed(&payload).expect("parse top song").shelves[0].tracks[0];
+    assert_eq!(track.title, song);
+    assert_eq!(track.artist, artist);
+    assert_eq!(track.album, album);
+    assert_eq!(track.play_count, play_count);
+}
+
+fn lyrics_tab(browse_id: &str, page_type: &str, title: &str, unselectable: bool) -> Value {
+    let mut tab = json!({
+        "tabRenderer": {
+            "title": title,
+            "endpoint": {
+                "browseEndpoint": {
+                    "browseId": browse_id,
+                    "browseEndpointContextSupportedConfigs": {
+                        "browseEndpointContextMusicConfig": { "pageType": page_type }
+                    }
+                }
+            }
+        }
+    });
+    if unselectable {
+        tab["tabRenderer"]["unselectable"] = json!(true);
+    }
+    tab
+}
+
+#[test]
+fn lyrics_browse_id_comes_from_the_track_lyrics_watch_tab() {
+    let lyrics_id: String = Name().fake();
+    let lyrics_id = format!("MPLYt_{lyrics_id}");
+    let related_id: String = Name().fake();
+    let payload = json!({
+        "contents": { "singleColumnMusicWatchNextResultsRenderer": { "tabbedRenderer": {
+            "watchNextTabbedResultsRenderer": { "tabs": [
+                { "tabRenderer": { "title": "A seguir", "content": { "musicQueueRenderer": {} } } },
+                lyrics_tab(&lyrics_id, "MUSIC_PAGE_TYPE_TRACK_LYRICS", "Letra", false),
+                lyrics_tab(&format!("MPREl_{related_id}"), "MUSIC_PAGE_TYPE_TRACK_RELATED", "Relacionadas", false)
+            ] }
+        } } }
+    });
+
+    assert_eq!(parse_lyrics_browse_id(&payload), lyrics_id);
+}
+
+#[test]
+fn lyrics_browse_id_skips_an_unselectable_lyrics_tab() {
+    let lyrics_id: String = Name().fake();
+    let lyrics_id = format!("MPLYt_{lyrics_id}");
+    let payload = json!({
+        "tabs": [ lyrics_tab(&lyrics_id, "MUSIC_PAGE_TYPE_TRACK_LYRICS", "Letra", true) ]
+    });
+
+    assert_eq!(parse_lyrics_browse_id(&payload), "");
+}
+
+#[test]
+fn lyrics_parser_splits_the_description_shelf_into_lines_and_a_source() {
+    let line_one: String = Sentence(3..8).fake();
+    let line_two: String = Sentence(3..8).fake();
+    let source: String = Name().fake();
+    let source = format!("Source: {source}");
+    let payload = json!({
+        "contents": { "sectionListRenderer": { "contents": [ {
+            "musicDescriptionShelfRenderer": {
+                "header": runs(&["Letra"]),
+                "description": runs(&[&format!("{line_one}\n\n{line_two}")]),
+                "footer": runs(&[&source])
+            }
+        } ] } }
+    });
+
+    let lyrics = parse_lyrics(&payload).expect("parse lyrics");
+    assert_eq!(lyrics.lines, vec![line_one, line_two]);
+    assert_eq!(lyrics.source, source);
+    assert_eq!(lyrics.message, "");
+}
+
+#[test]
+fn lyrics_parser_keeps_the_innertube_empty_message_when_the_shelf_is_missing() {
+    let message: String = Sentence(4..10).fake();
+    let payload = json!({
+        "contents": { "sectionListRenderer": { "contents": [
+            { "messageRenderer": { "text": runs(&[&message]) } }
+        ] } }
+    });
+
+    let lyrics = parse_lyrics(&payload).expect("parse lyrics");
+    assert!(lyrics.lines.is_empty());
+    assert_eq!(lyrics.message, message);
 }

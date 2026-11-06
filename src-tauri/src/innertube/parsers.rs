@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::innertube::models::{
-    Account, BrowseHeader, GuideEntry, HomeChip, HomeFeed, Shelf, Stream, Track,
+    Account, BrowseHeader, GuideEntry, HomeChip, HomeFeed, Lyrics, Shelf, Stream, Track,
 };
 
 pub fn parse_search_results(payload: &Value) -> Result<Vec<Track>, String> {
@@ -261,6 +261,63 @@ fn parse_continuation(payload: &Value) -> String {
         .unwrap_or_default()
 }
 
+pub fn parse_lyrics_browse_id(payload: &Value) -> String {
+    for tab in find_nodes(payload, "tabRenderer") {
+        if tab.get("unselectable").and_then(Value::as_bool) == Some(true) {
+            continue;
+        }
+        let Some(endpoint) = field(tab, &["endpoint", "browseEndpoint"]).or_else(|| {
+            field(tab, &["navigationEndpoint", "browseEndpoint"])
+        }) else {
+            continue;
+        };
+        let browse_id = string_field(Some(endpoint), "browseId");
+        let page_type = string_field(
+            field(
+                endpoint,
+                &[
+                    "browseEndpointContextSupportedConfigs",
+                    "browseEndpointContextMusicConfig",
+                ],
+            ),
+            "pageType",
+        );
+        if page_type == "MUSIC_PAGE_TYPE_TRACK_LYRICS" || browse_id.starts_with("MPLYt") {
+            return browse_id;
+        }
+    }
+    String::new()
+}
+
+pub fn parse_lyrics(payload: &Value) -> Result<Lyrics, String> {
+    let shelf = find_nodes(payload, "musicDescriptionShelfRenderer")
+        .into_iter()
+        .next();
+    let lines: Vec<String> = join_runs(shelf.and_then(|row| row.get("description")))
+        .split('\n')
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect();
+    if !lines.is_empty() {
+        return Ok(Lyrics {
+            source: join_runs(shelf.and_then(|row| row.get("footer"))),
+            lines,
+            message: String::new(),
+            ..Lyrics::default()
+        });
+    }
+    let message = parse_message(payload);
+    Ok(Lyrics {
+        message: if message.is_empty() {
+            "Letra não disponível".into()
+        } else {
+            message
+        },
+        ..Lyrics::default()
+    })
+}
+
 pub fn parse_queue(payload: &Value) -> Result<Vec<Track>, String> {
     let rows = find_nodes(payload, "playlistPanelVideoRenderer");
     let mut tracks = Vec::new();
@@ -269,12 +326,13 @@ pub fn parse_queue(payload: &Value) -> Result<Vec<Track>, String> {
         if video_id.is_empty() {
             continue;
         }
+        let (artist, album) = split_byline(&join_runs(row.get("longBylineText")));
         tracks.push(Track {
             video_id,
             playlist_id: String::new(),
             title: join_runs(row.get("title")),
-            artist: join_runs(row.get("longBylineText")),
-            album: String::new(),
+            artist,
+            album,
             duration: join_runs(row.get("lengthText")),
             thumbnail: largest_thumbnail(row.get("thumbnail")),
             ..Track::default()
@@ -625,7 +683,13 @@ fn largest_thumbnail(node: Option<&Value>) -> String {
 }
 
 fn looks_like_play_count(text: &str) -> bool {
-    text.to_ascii_lowercase().contains("tocou")
+    let lower = text.to_ascii_lowercase();
+    lower.contains("tocou")
+        || lower.contains("visualiza")
+        || lower.contains("reprodu")
+        || lower
+            .split(|c: char| !c.is_ascii_alphabetic())
+            .any(|word| matches!(word, "view" | "views" | "play" | "plays"))
 }
 
 fn responsive_column_texts(node: &Value) -> Vec<String> {
@@ -803,7 +867,9 @@ fn split_byline(byline: &str) -> (String, String) {
     let parts: Vec<&str> = byline
         .split('•')
         .map(str::trim)
-        .filter(|part| !part.is_empty())
+        .filter(|part| {
+            !part.is_empty() && !looks_like_play_count(part) && !looks_like_duration(part)
+        })
         .collect();
     if parts.is_empty() {
         return (String::new(), String::new());

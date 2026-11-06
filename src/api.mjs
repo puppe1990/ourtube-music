@@ -19,6 +19,7 @@ export const COMMANDS = {
   lastfmLogout: 'lastfm_logout',
   lastfmNowPlaying: 'lastfm_now_playing',
   lastfmScrobble: 'lastfm_scrobble',
+  lyrics: 'music_lyrics',
 }
 
 export function createMusicApi(invoke) {
@@ -45,6 +46,7 @@ export function createMusicApi(invoke) {
     lastfmLogout: () => invoke(COMMANDS.lastfmLogout),
     lastfmNowPlaying: (payload) => invoke(COMMANDS.lastfmNowPlaying, payload),
     lastfmScrobble: (payload) => invoke(COMMANDS.lastfmScrobble, payload),
+    lyrics: (videoId, extra = {}) => invoke(COMMANDS.lyrics, { videoId, ...extra }),
   }
 }
 
