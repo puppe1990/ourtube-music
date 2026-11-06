@@ -5,6 +5,7 @@ export const COMMANDS = {
   stream: 'music_stream',
   suggestions: 'music_suggestions',
   guide: 'music_guide',
+  browse: 'music_browse',
   account: 'music_account',
   audio: 'music_audio',
   authBrowserLogin: 'auth_browser_login',
@@ -16,12 +17,14 @@ export const COMMANDS = {
 
 export function createMusicApi(invoke) {
   return {
-    home: () => invoke(COMMANDS.home),
+    home: (args = {}) => invoke(COMMANDS.home, args),
     search: (query) => invoke(COMMANDS.search, { query }),
-    queue: (videoId) => invoke(COMMANDS.queue, { videoId }),
+    queue: (videoId, playlistId) =>
+      invoke(COMMANDS.queue, playlistId ? { videoId, playlistId } : { videoId }),
     stream: (videoId) => invoke(COMMANDS.stream, { videoId }),
     suggestions: (input) => invoke(COMMANDS.suggestions, { input }),
     guide: () => invoke(COMMANDS.guide),
+    browse: (browseId) => invoke(COMMANDS.browse, { browseId }),
     account: () => invoke(COMMANDS.account),
     audio: (videoId, variant) =>
       invoke(COMMANDS.audio, variant ? { videoId, variant } : { videoId }),

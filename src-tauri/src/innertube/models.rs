@@ -4,11 +4,55 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct Track {
     pub video_id: String,
+    #[serde(default)]
+    pub playlist_id: String,
+    #[serde(default)]
+    pub browse_id: String,
     pub title: String,
     pub artist: String,
     pub album: String,
     pub duration: String,
     pub thumbnail: String,
+    #[serde(default)]
+    pub play_count: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HomeChip {
+    pub label: String,
+    pub params: String,
+    pub browse_id: String,
+    pub selected: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowseHeader {
+    pub title: String,
+    pub artist: String,
+    pub subtitle: String,
+    pub second_subtitle: String,
+    pub thumbnail: String,
+    #[serde(default)]
+    pub artist_thumbnail: String,
+    #[serde(default)]
+    pub playlist_id: String,
+    #[serde(default)]
+    pub video_id: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HomeFeed {
+    pub chips: Vec<HomeChip>,
+    pub shelves: Vec<Shelf>,
+    #[serde(default)]
+    pub continuation: String,
+    #[serde(default)]
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<BrowseHeader>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,4 +91,10 @@ pub struct GuideEntry {
 #[serde(rename_all = "camelCase")]
 pub struct Account {
     pub display_name: String,
+    #[serde(default)]
+    pub email: String,
+    #[serde(default)]
+    pub handle: String,
+    #[serde(default)]
+    pub photo_url: String,
 }

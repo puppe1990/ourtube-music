@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::audio_proxy::{audio_path, AudioProxy};
 use crate::auth;
 use crate::innertube::client::MusicClient;
-use crate::innertube::models::{Account, GuideEntry, Shelf, Stream, Track};
+use crate::innertube::models::{Account, GuideEntry, HomeFeed, Stream, Track};
 use crate::session::AuthSession;
 
 /// The innertube calls are blocking (reqwest::blocking), so every command hands
@@ -20,14 +20,31 @@ where
         .map_err(|error| format!("innertube task failed: {error}"))?
 }
 
+fn bound_credentials(session: &AuthSession) -> Option<auth::CookieAuth> {
+    let credentials = session.credentials()?;
+    if auth::session_is_youtube_bound(&credentials) {
+        return Some(credentials);
+    }
+    match auth::bind_youtube_session(&credentials) {
+        Ok(bound) => {
+            let _ = session.store(bound.clone());
+            Some(bound)
+        }
+        Err(_) => Some(credentials),
+    }
+}
+
 fn authenticated(session: &AuthSession) -> MusicClient {
-    MusicClient::new().with_cookies(session.credentials())
+    MusicClient::new().with_cookies(bound_credentials(session))
 }
 
 #[tauri::command]
-pub async fn music_home(session: tauri::State<'_, Arc<AuthSession>>) -> Result<Vec<Shelf>, String> {
+pub async fn music_home(
+    session: tauri::State<'_, Arc<AuthSession>>,
+    params: Option<String>,
+) -> Result<HomeFeed, String> {
     let session = Arc::clone(session.inner());
-    on_blocking_pool(move || authenticated(&session).home()).await
+    on_blocking_pool(move || authenticated(&session).home(params.as_deref())).await
 }
 
 #[tauri::command]
@@ -42,10 +59,17 @@ pub async fn music_search(
 #[tauri::command]
 pub async fn music_queue(
     session: tauri::State<'_, Arc<AuthSession>>,
-    video_id: String,
+    video_id: Option<String>,
+    playlist_id: Option<String>,
 ) -> Result<Vec<Track>, String> {
     let session = Arc::clone(session.inner());
-    on_blocking_pool(move || authenticated(&session).queue(&video_id)).await
+    on_blocking_pool(move || {
+        authenticated(&session).queue(
+            &video_id.unwrap_or_default(),
+            &playlist_id.unwrap_or_default(),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -67,6 +91,15 @@ pub async fn music_suggestions(
 }
 
 #[tauri::command]
+pub async fn music_browse(
+    session: tauri::State<'_, Arc<AuthSession>>,
+    browse_id: String,
+) -> Result<HomeFeed, String> {
+    let session = Arc::clone(session.inner());
+    on_blocking_pool(move || authenticated(&session).browse_page(&browse_id)).await
+}
+
+#[tauri::command]
 pub async fn music_guide(
     session: tauri::State<'_, Arc<AuthSession>>,
 ) -> Result<Vec<GuideEntry>, String> {
@@ -75,25 +108,26 @@ pub async fn music_guide(
 }
 
 #[tauri::command]
-pub async fn music_account(
-    session: tauri::State<'_, Arc<AuthSession>>,
-) -> Result<Account, String> {
+pub async fn music_account(session: tauri::State<'_, Arc<AuthSession>>) -> Result<Account, String> {
     let session = Arc::clone(session.inner());
     on_blocking_pool(move || authenticated(&session).account()).await
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountState {
     pub logged_in: bool,
     pub display_name: String,
+    pub email: String,
+    pub handle: String,
+    pub photo_url: String,
+    pub accounts: Vec<Account>,
 }
 
 /// Opens the Google device page in the system browser. Only https Google
 /// hosts are allowed: the webview must never hand an arbitrary URL to `open`.
 const LOGIN_WINDOW: &str = "google-login";
-const LOGIN_URL: &str =
-    "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fmusic.youtube.com%2F";
+const LOGIN_URL: &str = auth::YOUTUBE_CONTINUE_URL;
 
 /// Opens the real Google sign-in inside the app. The window shares the
 /// webview cookie store, so `auth_check` can read `SAPISID` once the user
@@ -149,10 +183,25 @@ fn collect_cookies(app: &tauri::AppHandle, session: &AuthSession) -> Result<Stri
     println!(
         "auth cookies: {} names={:?}",
         pairs.len(),
-        pairs.iter().map(|(name, _)| name.as_str()).take(24).collect::<Vec<_>>()
+        pairs
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .take(24)
+            .collect::<Vec<_>>()
     );
     match auth::extract_cookie_auth(&pairs) {
-        Some(credentials) => {
+        Some(mut credentials) => {
+            if let Some(previous) = session.credentials() {
+                if credentials.email.is_empty() {
+                    credentials.email = previous.email;
+                }
+                if credentials.display_name.is_empty() {
+                    credentials.display_name = previous.display_name;
+                }
+                if credentials.identity_cookies.is_empty() {
+                    credentials.identity_cookies = previous.identity_cookies;
+                }
+            }
             session.store(credentials)?;
             Ok("authorized".to_string())
         }
@@ -192,22 +241,50 @@ pub async fn auth_check(
     Ok(result)
 }
 
+fn first_nonempty(values: &[&str]) -> String {
+    values
+        .iter()
+        .find(|value| !value.is_empty())
+        .map(|value| (*value).to_string())
+        .unwrap_or_default()
+}
+
 #[tauri::command]
 pub async fn auth_state(
+    app: tauri::AppHandle,
     session: tauri::State<'_, Arc<AuthSession>>,
 ) -> Result<AccountState, String> {
     let session = Arc::clone(session.inner());
+    let _ = collect_cookies(&app, &session);
     on_blocking_pool(move || {
-        let client = authenticated(&session);
-        let logged_in = session.credentials().is_some();
-        let display_name = if logged_in {
-            client.account().map(|account| account.display_name).unwrap_or_default()
-        } else {
-            String::new()
+        let Some(stored) = session.credentials() else {
+            return Ok(AccountState::default());
         };
+        let client = authenticated(&session);
+        let accounts = client.listed_accounts().unwrap_or_default();
+        let listed = accounts.first().cloned().unwrap_or_default();
+        let menu = client.account().unwrap_or_default();
+        let display_name = first_nonempty(&[
+            &listed.display_name,
+            &stored.display_name,
+            &menu.display_name,
+        ]);
+        let email = first_nonempty(&[&listed.email, &stored.email, &menu.email]);
+        let handle = first_nonempty(&[&menu.handle, &listed.handle]);
+        let photo_url = first_nonempty(&[&listed.photo_url, &menu.photo_url]);
+        if email != stored.email || display_name != stored.display_name {
+            let mut next = stored.clone();
+            next.email = email.clone();
+            next.display_name = display_name.clone();
+            session.store(next)?;
+        }
         Ok(AccountState {
-            logged_in,
+            logged_in: true,
             display_name,
+            email,
+            handle,
+            photo_url,
+            accounts,
         })
     })
     .await

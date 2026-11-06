@@ -27,7 +27,11 @@ fn spawn_scripted_browse_server() -> (String, Arc<AtomicUsize>) {
             let mut stream = connection;
             read_request(&mut stream);
             let call = counter.fetch_add(1, Ordering::SeqCst);
-            let body = if call == 0 { empty_home_payload() } else { explore_payload() };
+            let body = if call == 0 {
+                empty_home_payload()
+            } else {
+                explore_payload()
+            };
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 body.len(),
@@ -84,10 +88,27 @@ fn home_falls_back_to_explore_when_the_anonymous_feed_is_empty() {
     let (base_url, hits) = spawn_scripted_browse_server();
     let client = MusicClient::with_base(&base_url);
 
-    let shelves = client.home().expect("home with fallback");
+    let feed = client.home(None).expect("home with fallback");
 
     assert_eq!(hits.load(Ordering::SeqCst), 2, "want home then explore");
-    assert_eq!(shelves.len(), 1);
-    assert_eq!(shelves[0].title, "Explore");
-    assert_eq!(shelves[0].tracks[0].video_id, "vid-1");
+    assert_eq!(feed.shelves.len(), 1);
+    assert_eq!(feed.shelves[0].title, "Explore");
+    assert_eq!(feed.shelves[0].tracks[0].video_id, "vid-1");
+}
+
+#[test]
+fn browse_page_stays_on_the_requested_id_even_when_empty() {
+    let (base_url, hits) = spawn_scripted_browse_server();
+    let client = MusicClient::with_base(&base_url);
+
+    let feed = client
+        .browse_page("FEmusic_library_landing")
+        .expect("library browse");
+
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "library must not fall through to explore"
+    );
+    assert!(feed.shelves.is_empty());
 }

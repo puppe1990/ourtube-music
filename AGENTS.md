@@ -24,28 +24,32 @@ Pre-commit: lint-staged + `npm test`. CI: `.github/workflows/ci.yml` (Node + Rus
 
 ## Endpoints mapeados (fonte: captura decifrada)
 
-| Comando Tauri       | Endpoint                                         | Cliente   |
-| ------------------- | ------------------------------------------------ | --------- |
-| `music_home`        | `POST /youtubei/v1/browse` (`FEmusic_home`)      | WEB_REMIX |
-| `music_search`      | `POST /youtubei/v1/search`                       | WEB_REMIX |
-| `music_queue`       | `POST /youtubei/v1/next`                         | WEB_REMIX |
-| `music_stream`      | `POST /youtubei/v1/player`                       | **IOS**   |
-| `music_suggestions` | `POST /youtubei/v1/music/get_search_suggestions` | WEB_REMIX |
-| `music_guide`       | `POST /youtubei/v1/guide`                        | WEB_REMIX |
-| `music_account`     | `POST /youtubei/v1/account/account_menu`         | WEB_REMIX |
+| Comando Tauri       | Endpoint                                         | Cliente     |
+| ------------------- | ------------------------------------------------ | ----------- |
+| `music_home`        | `POST /youtubei/v1/browse` (`FEmusic_home`)      | WEB_REMIX   |
+| `music_browse`      | `POST /youtubei/v1/browse` (Explorar/Biblioteca) | WEB_REMIX   |
+| `music_search`      | `POST /youtubei/v1/search`                       | WEB_REMIX   |
+| `music_queue`       | `POST /youtubei/v1/next`                         | WEB_REMIX   |
+| `music_stream`      | `POST /youtubei/v1/player`                       | **ANDROID** |
+| `music_suggestions` | `POST /youtubei/v1/music/get_search_suggestions` | WEB_REMIX   |
+| `music_guide`       | `POST /youtubei/v1/guide`                        | WEB_REMIX   |
+| `music_account`     | `POST /youtubei/v1/account/account_menu`         | WEB_REMIX   |
 
-WEB_REMIX responde `UNPLAYABLE` no `/player`; o cliente IOS devolve URL direta do
-`googlevideo.com` (sondado em 05/11/2026). Não troque isso sem testar o `/player` de verdade.
+WEB_REMIX responde `UNPLAYABLE` no `/player`; o cliente ANDROID devolve URL
+direta do `googlevideo.com` no itag 18 progressivo (`ftypmp42`, sondado em
+05/11/2026). IOS só manda AAC DASH (`ftypdash`) que o WKWebView rejeita.
+ANDROID_VR agora responde `LOGIN_REQUIRED`. Não troque isso sem testar o
+`/player` de verdade.
 
 ## Player
 
-- O `/player` tenta IOS e cai para ANDROID_VR (que também traz o MP4 progressivo
-  itag 18 como fallback).
+- O `/player` tenta ANDROID e cai para IOS. O `<audio>` toca o MP4 progressivo
+  itag 18 (muxed); o AAC adaptativo só entra se o muxed não vier.
 - O proxy baixa a faixa inteira em janelas de 256/64/16 KB com pausa de 120 ms e
   backoff em 403 (o CDN limita rajadas e recusa spans > ~256 KB), guarda em
   memória por 15 min e serve `Range` local — o `<audio>` toca e busca normal.
-- Faixas ainda podem voltar 403 do CDN: sem PO token (`pot`) do BotGuard o
-  YouTube limita parte do catálogo. A UI mostra "áudio indisponível" nesses casos.
+- googlevideo GET usa o UA do app Android e não manda Cookie (a captura oficial
+  também não manda). 403 ainda pode aparecer em parte do catálogo.
 
 ## Login
 
@@ -83,7 +87,7 @@ controles/scrubber, volume). Não invente hex novo: use as variáveis CSS.
 ## Convenções
 
 - Funções 4–20 linhas; arquivos até 300 (teto 500). Nomes greppáveis.
-- Comentário só de WHY/proveniência (ex.: por que IOS no player).
+- Comentário só de WHY/proveniência (ex.: por que ANDROID no player).
 - Erros carregam o valor (`player "abc" is UNPLAYABLE: …`).
 - Sem `any`/`unwrap()` em superfície pública: parsers devolvem `Result<T, String>`.
 - Dados de teste vêm do faker (`@faker-js/faker` no JS, crate `fake` no Rust) — nada de literal

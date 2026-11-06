@@ -6,18 +6,20 @@ decifrada com `SSLKEYLOGFILE` em 05/11/2026.
 
 ## O que está mapeado
 
-| Chamada            | Endpoint                                         | Cliente   |
-| ------------------ | ------------------------------------------------ | --------- |
-| Home               | `POST /youtubei/v1/browse` (`FEmusic_home`)      | WEB_REMIX |
-| Busca              | `POST /youtubei/v1/search`                       | WEB_REMIX |
-| Fila / a seguir    | `POST /youtubei/v1/next`                         | WEB_REMIX |
-| Stream de áudio    | `POST /youtubei/v1/player`                       | IOS       |
-| Sugestões de busca | `POST /youtubei/v1/music/get_search_suggestions` | WEB_REMIX |
-| Navegação lateral  | `POST /youtubei/v1/guide`                        | WEB_REMIX |
-| Conta              | `POST /youtubei/v1/account/account_menu`         | WEB_REMIX |
+| Chamada             | Endpoint                                                                   | Cliente   |
+| ------------------- | -------------------------------------------------------------------------- | --------- |
+| Home                | `POST /youtubei/v1/browse` (`FEmusic_home`)                                | WEB_REMIX |
+| Explorar/Biblioteca | `POST /youtubei/v1/browse` (`FEmusic_explore` / `FEmusic_library_landing`) | WEB_REMIX |
+| Busca               | `POST /youtubei/v1/search`                                                 | WEB_REMIX |
+| Fila / a seguir     | `POST /youtubei/v1/next`                                                   | WEB_REMIX |
+| Stream de áudio     | `POST /youtubei/v1/player`                                                 | ANDROID   |
+| Sugestões de busca  | `POST /youtubei/v1/music/get_search_suggestions`                           | WEB_REMIX |
+| Navegação lateral   | `POST /youtubei/v1/guide`                                                  | WEB_REMIX |
+| Conta               | `POST /youtubei/v1/account/account_menu`                                   | WEB_REMIX |
 
-O `/player` do cliente WEB_REMIX devolve `UNPLAYABLE`; o cliente IOS devolve URL direta
-do `googlevideo.com` (testada com `Range` → `206 audio/mp4`).
+O `/player` do cliente WEB_REMIX devolve `UNPLAYABLE`; o cliente ANDROID devolve
+URL direta do `googlevideo.com` no itag 18 progressivo (`Range` → `206 video/mp4`).
+O AAC DASH do IOS (`ftypdash`) o WKWebView recusa no `<audio>`.
 
 ## Login (Google device flow)
 

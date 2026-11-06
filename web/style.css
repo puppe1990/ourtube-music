@@ -97,7 +97,7 @@ input {
   background: var(--bg);
   border-right: 1px solid var(--line-soft);
   min-height: 0;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 .brand {
@@ -184,6 +184,8 @@ input {
 
 .rail-block-grow {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .rail-label {
@@ -264,14 +266,6 @@ input {
 .rail-list button:hover {
   background: var(--surface-3);
   color: var(--text);
-}
-
-.rail-note {
-  margin: 0;
-  padding: 0 10px;
-  font-size: 10.5px;
-  line-height: 1.7;
-  color: var(--dim);
 }
 
 /* ── shell / topbar ────────────────────────────────────────────────────── */
@@ -365,6 +359,13 @@ input {
 .chips {
   display: flex;
   gap: 6px;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  scrollbar-width: none;
+}
+
+.chips::-webkit-scrollbar {
+  display: none;
 }
 
 .chip {
@@ -377,6 +378,8 @@ input {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .chip:hover {
@@ -397,17 +400,48 @@ input {
   margin-left: auto;
 }
 
+.account-slot {
+  position: relative;
+  flex-shrink: 0;
+}
+
 .account {
-  height: 32px;
-  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 10px;
   border: 1px solid var(--line);
-  border-radius: var(--pill);
+  border-radius: var(--radius);
   background: transparent;
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  max-width: 200px;
+  text-align: left;
+}
+
+.account-avatar,
+.account-avatar-fallback {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--surface-3);
+}
+
+.account-avatar-fallback {
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.account-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -422,6 +456,139 @@ input {
   color: var(--text);
   border-color: var(--red);
   background: var(--red-soft);
+}
+
+.account[aria-expanded='true'] {
+  border-color: var(--text);
+}
+
+.account-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: 280px;
+  padding: 12px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-3);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+  z-index: 40;
+}
+
+.account-menu-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 4px 16px 12px;
+}
+
+.account-menu-photo,
+.account-menu-photo-fallback,
+.account-menu-other-photo,
+.account-menu-other-photo-fallback {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--surface-2);
+}
+
+.account-menu-photo-fallback,
+.account-menu-other-photo-fallback {
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.account-menu-other-photo,
+.account-menu-other-photo-fallback {
+  width: 28px;
+  height: 28px;
+  font-size: 12px;
+}
+
+.account-menu-id,
+.account-menu-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.account-menu-id strong,
+.account-menu-copy strong {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.account-menu-id span,
+.account-menu-copy span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-menu-manage {
+  display: block;
+  padding: 4px 16px 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.account-menu-manage:hover {
+  text-decoration: underline;
+}
+
+.account-menu-sep {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 0 6px;
+}
+
+.account-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 10px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+
+.account-menu-item:hover {
+  background: var(--surface-2);
+}
+
+.account-menu-glyph {
+  width: 20px;
+  height: 20px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.account-menu-glyph svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+.account-menu-chevron {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
 }
 
 .icon-button {
@@ -880,6 +1047,132 @@ input {
   color: var(--red);
 }
 
+.album-spread {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 8px 48px;
+  align-items: start;
+}
+
+.album-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: sticky;
+  top: 0;
+}
+
+.album-cover,
+.album-cover.art-empty {
+  width: 240px;
+  height: 240px;
+  border-radius: var(--radius);
+  object-fit: cover;
+  background: var(--surface-2);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+.album-hero h1 {
+  margin: 18px 0 6px;
+  font-size: clamp(28px, 3vw, 40px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.album-artist {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.album-artist-img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+
+.album-subtitle,
+.album-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.album-meta {
+  margin-top: 4px;
+  color: var(--dim);
+}
+
+.album-play {
+  width: 56px;
+  height: 56px;
+  margin-top: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--bg);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.album-play svg {
+  width: 22px;
+  height: 22px;
+  margin-left: 2px;
+}
+
+.album-play:hover {
+  transform: scale(1.04);
+}
+
+.album-tracks {
+  min-width: 0;
+}
+
+.album-row {
+  grid-template-columns: 32px minmax(0, 1fr) 52px;
+  height: 58px;
+  padding: 0 16px;
+}
+
+.album-row .track-index {
+  display: grid;
+  place-items: center;
+}
+
+.album-row .track-index svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text);
+}
+
+.album-row[data-current='true'] {
+  background: var(--surface-2);
+}
+
+.album-row[data-current='true'] .track-text strong {
+  color: var(--text);
+}
+
+@media (max-width: 900px) {
+  .album-spread {
+    grid-template-columns: 1fr;
+  }
+
+  .album-hero {
+    position: static;
+  }
+}
+
 .empty {
   padding: 46px 20px;
   text-align: center;
@@ -1182,7 +1475,6 @@ input {
 
   .brand-name,
   .rail-label,
-  .rail-note,
   .rail-list {
     display: none;
   }
@@ -1197,6 +1489,15 @@ input {
 
   .rail-action {
     font-size: 0;
+  }
+
+  .account-label {
+    display: none;
+  }
+
+  .account {
+    justify-content: center;
+    padding: 8px;
   }
 }
 

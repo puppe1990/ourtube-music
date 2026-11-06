@@ -1,6 +1,8 @@
-use ourtube_music::innertube::client::{client_kind_for, request_body};
+use ourtube_music::innertube::client::{
+    client_kind_for, request_body, signs_with_sapisid, user_agent_for,
+};
 use ourtube_music::innertube::endpoints::{
-    ACCOUNT_MENU, BROWSE, ClientKind, GUIDE, NEXT, PLAYER, SEARCH, SUGGESTIONS, WEB_CLIENT_VERSION,
+    ClientKind, ACCOUNT_MENU, BROWSE, GUIDE, NEXT, PLAYER, SEARCH, SUGGESTIONS, WEB_CLIENT_VERSION,
 };
 use serde_json::json;
 
@@ -28,19 +30,41 @@ fn browsing_endpoints_use_the_web_remix_client() {
 }
 
 #[test]
-fn player_starts_with_the_ios_client() {
-    // IOS answers without the bot check; the client retries ANDROID_VR when it
-    // does not (see MusicClient::stream_variant).
-    assert_eq!(client_kind_for(PLAYER), ClientKind::Ios);
+fn player_starts_with_the_android_client() {
+    // ANDROID answers itag 18 (progressive ftypmp42) with a direct URL.
+    // ANDROID_VR now returns LOGIN_REQUIRED; IOS only ships DASH audio
+    // that WKWebView cannot feed to <audio> (probed 2026-11-05).
+    assert_eq!(client_kind_for(PLAYER), ClientKind::Android);
 }
 
 #[test]
-fn vr_body_can_still_be_built_explicitly() {
+fn android_and_ios_player_skip_web_sapisidhash() {
+    // ANDROID /player + SAPISIDHASH (WEB origin hash) answers INVALID_ARGUMENT
+    // once the session is logged in (probed 2026-11-06). Cookies stay on.
+    assert!(!signs_with_sapisid(ClientKind::Android));
+    assert!(!signs_with_sapisid(ClientKind::Ios));
+    assert!(!signs_with_sapisid(ClientKind::AndroidVr));
+    assert!(signs_with_sapisid(ClientKind::WebRemix));
+}
+
+#[test]
+fn player_uses_the_android_youtube_user_agent() {
+    assert!(
+        user_agent_for(ClientKind::Android).starts_with("com.google.android.youtube/20.10.4"),
+        "ANDROID /player must look like the YouTube Android app"
+    );
+}
+
+#[test]
+fn android_body_carries_the_probed_device_context() {
     use ourtube_music::innertube::client::request_body_for;
 
-    let body = request_body_for(ClientKind::AndroidVr, json!({ "videoId": "vid" }));
+    let body = request_body_for(ClientKind::Android, json!({ "videoId": "vid" }));
 
-    assert_eq!(body["context"]["client"]["clientName"], "ANDROID_VR");
+    assert_eq!(body["context"]["client"]["clientName"], "ANDROID");
+    assert_eq!(body["context"]["client"]["clientVersion"], "20.10.4");
+    assert_eq!(body["context"]["client"]["androidSdkVersion"], 30);
+    assert_eq!(body["contentCheckOk"], true);
 }
 
 #[test]
@@ -48,17 +72,21 @@ fn web_remix_body_carries_the_captured_context() {
     let body = request_body(SEARCH, json!({ "query": "daft punk" }));
 
     assert_eq!(body["context"]["client"]["clientName"], "WEB_REMIX");
-    assert_eq!(body["context"]["client"]["clientVersion"], WEB_CLIENT_VERSION);
-    assert_eq!(body["context"]["client"]["hl"], "en");
+    assert_eq!(
+        body["context"]["client"]["clientVersion"],
+        WEB_CLIENT_VERSION
+    );
+    assert_eq!(body["context"]["client"]["hl"], "pt");
+    assert_eq!(body["context"]["client"]["gl"], "BR");
     assert_eq!(body["query"], "daft punk");
 }
 
 #[test]
-fn player_body_carries_the_ios_context() {
+fn player_body_carries_the_android_context() {
     let body = request_body(PLAYER, json!({ "videoId": "dQw4w9WgXcQ" }));
 
-    assert_eq!(body["context"]["client"]["clientName"], "IOS");
-    assert_eq!(body["context"]["client"]["deviceModel"], "iPhone16,2");
+    assert_eq!(body["context"]["client"]["clientName"], "ANDROID");
+    assert_eq!(body["context"]["client"]["osName"], "Android");
     assert_eq!(body["videoId"], "dQw4w9WgXcQ");
     assert_eq!(body["contentCheckOk"], true);
 }

@@ -24,6 +24,7 @@ test('every mapped endpoint has a command', () => {
     'authLogout',
     'authRefresh',
     'authState',
+    'browse',
     'guide',
     'home',
     'queue',
@@ -56,6 +57,15 @@ test('stream and queue send the video id', async () => {
   ])
 })
 
+test('queue can send a playlist mix id', async () => {
+  const playlistId = `RDCLAK5uy_${faker.string.alphanumeric(12)}`
+  const { calls, invoke } = recordingInvoke()
+
+  await createMusicApi(invoke).queue('', playlistId)
+
+  assert.deepEqual(calls, [{ command: 'music_queue', args: { videoId: '', playlistId } }])
+})
+
 test('audio resolves the local proxy url for a video', async () => {
   const videoId = faker.string.alphanumeric(11)
   const { calls, invoke } = recordingInvoke()
@@ -80,6 +90,15 @@ test('browser login and check need no arguments', async () => {
     calls.map((call) => call.command),
     ['auth_browser_login', 'auth_check'],
   )
+})
+
+test('browse sends the Innertube browse id', async () => {
+  const browseId = `FE${faker.string.alphanumeric(12)}`
+  const { calls, invoke } = recordingInvoke()
+
+  await createMusicApi(invoke).browse(browseId)
+
+  assert.deepEqual(calls, [{ command: 'music_browse', args: { browseId } }])
 })
 
 test('home, guide and account need no arguments', async () => {
