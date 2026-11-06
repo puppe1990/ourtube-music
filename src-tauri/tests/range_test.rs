@@ -36,13 +36,19 @@ fn open_ranges_fall_back_to_smaller_windows() {
 
 #[test]
 fn slice_for_range_reads_a_closed_window() {
-    assert_eq!(slice_for_range(1000, Some("bytes=100-199")), Some((100, 200)));
+    assert_eq!(
+        slice_for_range(1000, Some("bytes=100-199")),
+        Some((100, 200))
+    );
 }
 
 #[test]
 fn slice_for_range_clamps_open_and_overflowing_windows() {
     assert_eq!(slice_for_range(1000, Some("bytes=900-")), Some((900, 1000)));
-    assert_eq!(slice_for_range(1000, Some("bytes=900-5000")), Some((900, 1000)));
+    assert_eq!(
+        slice_for_range(1000, Some("bytes=900-5000")),
+        Some((900, 1000))
+    );
     assert_eq!(slice_for_range(1000, None), Some((0, 1000)));
 }
 

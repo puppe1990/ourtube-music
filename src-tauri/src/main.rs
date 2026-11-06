@@ -24,6 +24,7 @@ fn main() {
             ourtube_music::commands::music_queue,
             ourtube_music::commands::music_stream,
             ourtube_music::commands::music_suggestions,
+            ourtube_music::commands::music_browse,
             ourtube_music::commands::music_guide,
             ourtube_music::commands::music_account,
             ourtube_music::commands::music_audio,

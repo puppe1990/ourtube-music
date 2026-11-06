@@ -109,7 +109,10 @@ pub fn bounded_range(header: Option<&str>) -> String {
 /// Ordered upstream ranges to try: the client's own range when it is closed,
 /// otherwise a 1 MiB window and progressively smaller ones.
 pub fn range_candidates(header: Option<&str>) -> Vec<String> {
-    let Some(raw) = header.map(str::trim).and_then(|value| value.strip_prefix("bytes=")) else {
+    let Some(raw) = header
+        .map(str::trim)
+        .and_then(|value| value.strip_prefix("bytes="))
+    else {
         return range_windows(0);
     };
     let Some((start, end)) = raw.split_once('-') else {
@@ -138,7 +141,10 @@ fn range_windows(start: u64) -> Vec<String> {
 
 /// Maps a client `Range` onto a buffer of `total` bytes.
 pub fn slice_for_range(total: u64, header: Option<&str>) -> Option<(u64, u64)> {
-    let Some(raw) = header.map(str::trim).and_then(|value| value.strip_prefix("bytes=")) else {
+    let Some(raw) = header
+        .map(str::trim)
+        .and_then(|value| value.strip_prefix("bytes="))
+    else {
         return Some((0, total));
     };
     let (start, end) = raw.split_once('-')?;
@@ -195,12 +201,14 @@ fn serve(
     let range = range_header(&mut lines);
 
     let key = format!("{}:{:?}", request.video_id, request.variant);
-    let cached = cache
-        .lock()
-        .ok()
-        .and_then(|map| map.get(&key).map(|entry| (entry.mime.clone(), entry.bytes.clone(), entry.stored_at)));
+    let cached = cache.lock().ok().and_then(|map| {
+        map.get(&key)
+            .map(|entry| (entry.mime.clone(), entry.bytes.clone(), entry.stored_at))
+    });
     let (mime, bytes) = match cached {
-        Some((mime, bytes, stored_at)) if stored_at.elapsed().as_secs() < CACHE_TTL_SECS => (mime, bytes),
+        Some((mime, bytes, stored_at)) if stored_at.elapsed().as_secs() < CACHE_TTL_SECS => {
+            (mime, bytes)
+        }
         _ => {
             let client = MusicClient::new().with_cookies(session.credentials());
             match client.fetch_media(&request.video_id, request.variant.as_deref()) {
@@ -239,7 +247,11 @@ fn write_slice(
 ) -> io::Result<()> {
     let body = &bytes[start as usize..end as usize];
     let partial = start != 0 || end != total;
-    let status = if partial { "206 Partial Content" } else { "200 OK" };
+    let status = if partial {
+        "206 Partial Content"
+    } else {
+        "200 OK"
+    };
     let mut head = format!("HTTP/1.1 {status}\r\n");
     head.push_str(&format!("Content-Type: {mime}\r\n"));
     head.push_str("Accept-Ranges: bytes\r\n");
@@ -247,7 +259,10 @@ fn write_slice(
     head.push_str("Access-Control-Expose-Headers: content-range, content-length, content-type\r\n");
     head.push_str("Cache-Control: no-store\r\n");
     if partial {
-        head.push_str(&format!("Content-Range: bytes {start}-{}/{total}\r\n", end - 1));
+        head.push_str(&format!(
+            "Content-Range: bytes {start}-{}/{total}\r\n",
+            end - 1
+        ));
     }
     head.push_str(&format!("Content-Length: {}\r\n", body.len()));
     head.push_str("Connection: close\r\n\r\n");
@@ -260,7 +275,10 @@ fn read_head(connection: &mut TcpStream) -> io::Result<String> {
     let mut chunk = [0_u8; 512];
     while !buffer.windows(4).any(|window| window == b"\r\n\r\n") {
         if buffer.len() > MAX_HEAD_BYTES {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "request head too large"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "request head too large",
+            ));
         }
         let read = connection.read(&mut chunk)?;
         if read == 0 {

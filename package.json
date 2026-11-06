@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Leitor desktop dos endpoints internos do YouTube Music (Innertube WEB_REMIX/IOS), em Tauri 2",
+  "description": "Leitor desktop dos endpoints internos do YouTube Music (Innertube WEB_REMIX/ANDROID), em Tauri 2",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/puppe1990/ourtube-music.git"
@@ -13,7 +13,7 @@
   },
   "scripts": {
     "test": "NODE_ENV=test node --test test/*.test.mjs",
-    "dev": "node scripts/dev-proxy.mjs",
+    "dev": "node --max-http-header-size=65536 scripts/dev-proxy.mjs",
     "dist": "node scripts/make-tauri-dist.mjs",
     "tauri:dev": "node scripts/make-tauri-dist.mjs && cargo run --manifest-path src-tauri/Cargo.toml",
     "tauri:build": "node scripts/make-tauri-dist.mjs && cargo build --release --manifest-path src-tauri/Cargo.toml",

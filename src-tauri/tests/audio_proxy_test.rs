@@ -1,4 +1,6 @@
-use ourtube_music::audio_proxy::{audio_path, parse_request_line, range_header, variant_from_query};
+use ourtube_music::audio_proxy::{
+    audio_path, parse_request_line, range_header, variant_from_query,
+};
 
 #[test]
 fn audio_path_defaults_to_adaptive_and_can_ask_for_other_variants() {

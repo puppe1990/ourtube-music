@@ -2,12 +2,24 @@ import { createMusicApi, resolveInvoker } from '/src/api.mjs'
 import { isFavorite, readFavorites, toggleFavorite } from '/src/favorites.mjs'
 import { formatBitrate, formatDuration, shorten } from '/src/format.mjs'
 import { greeting } from '/src/greeting.mjs'
+import {
+  HOME_BROWSE_ID,
+  LIBRARY_BROWSE_ID,
+  browseIdFromPath,
+  catalogHref,
+  feedHeading,
+  guideHref,
+  isAlbumBrowseId,
+} from '/src/guide.mjs'
+import { playPauseAriaLabel, syncPlayPauseIcons } from '/src/playback.mjs'
 import { nextTrack, upNext } from '/src/queue.mjs'
+import { accountMenuModel, renderAccountButton, renderAccountMenu } from '/src/accountMenu.mjs'
 import { accountLabel } from '/src/session.mjs'
 
 const api = createMusicApi(resolveInvoker())
 const state = {
   shelves: [],
+  chips: [],
   results: [],
   queue: [],
   current: null,
@@ -15,7 +27,15 @@ const state = {
   favorites: [],
   filter: '',
   homeLoaded: false,
+  guide: [],
+  album: null,
 }
+
+const SEARCH_CHIPS = [
+  { label: 'Tudo', filter: '' },
+  { label: 'Músicas', filter: 'song' },
+  { label: 'Vídeos', filter: 'video' },
+]
 
 const $ = (selector) => document.querySelector(selector)
 
@@ -27,6 +47,8 @@ const dom = {
   suggestions: $('#suggestions'),
   chips: $('#chips'),
   account: $('#account'),
+  accountMenu: $('#account-menu'),
+  accountSlot: $('#account-slot'),
   theme: $('#theme-toggle'),
   favorites: $('#favorites'),
   recent: $('#recent'),
@@ -80,27 +102,46 @@ function byline(track) {
   return [track.artist, track.album].filter(Boolean).join(' • ')
 }
 
+function playAttrs(track) {
+  const attrs = []
+  if (track.browseId) attrs.push(`data-browse-id="${escapeHtml(track.browseId)}"`)
+  if (track.videoId) attrs.push(`data-video-id="${escapeHtml(track.videoId)}"`)
+  if (track.playlistId) attrs.push(`data-playlist-id="${escapeHtml(track.playlistId)}"`)
+  return attrs.join(' ')
+}
+
+function catalogTag(track, className, inner) {
+  const href = catalogHref(track)
+  const tag = href ? 'a' : 'button'
+  const extra = href ? `href="${href}"` : 'type="button"'
+  return `<${tag} class="${className}" ${extra} ${playAttrs(track)}>${inner}</${tag}>`
+}
+
 /* ── cards / lists ──────────────────────────────────────────────────────── */
 function quickCard(track) {
-  return `<button class="quick-card" type="button" data-video-id="${escapeHtml(track.videoId)}">
-    ${art(track, 'quick-art')}
+  return catalogTag(
+    track,
+    'quick-card',
+    `${art(track, 'quick-art')}
     <span class="quick-text">
       <strong>${escapeHtml(shorten(track.title, 34))}</strong>
       <span>${escapeHtml(shorten(byline(track), 40))}</span>
     </span>
-    <span class="quick-play" aria-hidden="true">${ICON_PLAY}</span>
-  </button>`
+    <span class="quick-play" aria-hidden="true">${ICON_PLAY}</span>`,
+  )
 }
 
 function shelfCard(track) {
-  return `<button class="card" type="button" data-video-id="${escapeHtml(track.videoId)}">
-    <span class="card-art">
+  return catalogTag(
+    track,
+    'card',
+    `<span class="card-art">
       ${art(track, 'card-img')}
       <span class="card-play" aria-hidden="true">${ICON_PLAY}</span>
     </span>
     <strong>${escapeHtml(shorten(track.title, 46))}</strong>
-    <span>${escapeHtml(shorten(track.artist, 34))}</span>
-  </button>`
+    <span>${escapeHtml(shorten(track.artist, 34))}</span>`,
+  )
 }
 
 function eqBars() {
@@ -122,6 +163,20 @@ function row(track, index) {
   </li>`
 }
 
+function albumRow(track, index) {
+  const current = state.current?.videoId === track.videoId
+  return `<li>
+    <button class="track-row album-row" type="button" ${playAttrs(track)} data-current="${current}">
+      <span class="track-index">${current ? ICON_PLAY : index + 1}</span>
+      <span class="track-text">
+        <strong>${escapeHtml(track.title)}</strong>
+        <span>${escapeHtml(track.playCount || byline(track))}</span>
+      </span>
+      <span class="track-duration">${escapeHtml(track.duration)}</span>
+    </button>
+  </li>`
+}
+
 function trackList(tracks, emptyMessage = 'Nenhuma faixa por aqui.') {
   if (!tracks.length) return `<p class="empty">${escapeHtml(emptyMessage)}</p>`
   return `<ul class="track-list">${tracks.map(row).join('')}</ul>`
@@ -129,7 +184,33 @@ function trackList(tracks, emptyMessage = 'Nenhuma faixa por aqui.') {
 
 /* ── views ──────────────────────────────────────────────────────────────── */
 function quickPicks() {
-  return state.shelves.flatMap((shelf) => shelf.tracks).slice(0, 6)
+  return state.shelves
+    .flatMap((shelf) => shelf.tracks)
+    .filter((track) => track.videoId || track.playlistId)
+    .slice(0, 6)
+}
+
+function renderMoodChips() {
+  if (!state.chips.length) return
+  dom.chips.setAttribute('aria-label', 'Humor e momentos')
+  dom.chips.innerHTML = state.chips
+    .map(
+      (chip) =>
+        `<button class="chip${chip.selected ? ' is-active' : ''}" type="button" data-chip-params="${escapeHtml(
+          chip.params,
+        )}">${escapeHtml(chip.label)}</button>`,
+    )
+    .join('')
+}
+
+function renderSearchChips() {
+  dom.chips.setAttribute('aria-label', 'Filtrar resultados')
+  dom.chips.innerHTML = SEARCH_CHIPS.map(
+    (chip) =>
+      `<button class="chip${state.filter === chip.filter ? ' is-active' : ''}" type="button" data-filter="${escapeHtml(
+        chip.filter,
+      )}">${escapeHtml(chip.label)}</button>`,
+  ).join('')
 }
 
 function renderHome() {
@@ -198,7 +279,7 @@ function renderWatch(track) {
         <p>${escapeHtml(byline(track))}</p>
         <div class="hero-meta">
           ${track.duration ? `<span class="pill">${escapeHtml(track.duration)}</span>` : ''}
-          <span class="pill pill-red">player · IOS</span>
+          <span class="pill pill-red">player · ANDROID</span>
         </div>
       </div>
     </section>
@@ -231,11 +312,13 @@ function renderFavorites() {
 }
 
 function renderGuide(entries) {
-  dom.guide.innerHTML = entries
+  if (entries) state.guide = entries
+  const current = browseIdFromPath(location.hash) || HOME_BROWSE_ID
+  dom.guide.innerHTML = state.guide
     .map(
       (entry) =>
-        `<a href="#/" data-browse="${escapeHtml(entry.browseId)}" ${
-          entry.browseId === 'FEmusic_home' ? 'aria-current="true"' : ''
+        `<a href="${guideHref(entry.browseId)}" data-browse="${escapeHtml(entry.browseId)}" ${
+          entry.browseId === current ? 'aria-current="true"' : ''
         }>${escapeHtml(entry.label)}</a>`,
     )
     .join('')
@@ -251,15 +334,35 @@ function renderRecent() {
 }
 
 /* ── playback ───────────────────────────────────────────────────────────── */
+function refreshPlayPauseIcon() {
+  const playing = !dom.audio.paused
+  syncPlayPauseIcons(dom.iconPlay, dom.iconPause, playing)
+  dom.playPause.setAttribute('aria-label', playPauseAriaLabel(playing))
+}
+
 function findTrack(videoId) {
   const pools = [state.queue, state.results, state.favorites, ...state.shelves.map((s) => s.tracks)]
   return pools.flat().find((track) => track.videoId === videoId) ?? null
 }
 
+function isWatchRoute() {
+  return location.hash.replace(/^#/, '').startsWith('/watch/')
+}
+
+function refreshNowPlayingView() {
+  if (isWatchRoute()) {
+    if (state.current) renderWatch(state.current)
+    return
+  }
+  if (state.album && isAlbumBrowseId(browseIdFromPath(location.hash))) {
+    renderAlbumPage(state.album.browseId, state.album.feed)
+  }
+}
+
 async function play(track, queue) {
   state.current = track
   state.queue = queue?.length ? queue : [track]
-  renderWatch(track)
+  refreshNowPlayingView()
   dom.player.hidden = false
   dom.title.textContent = track.title || '—'
   dom.artist.textContent = track.artist || '—'
@@ -277,6 +380,7 @@ async function play(track, queue) {
     dom.audio.src = audioSrc
     dom.audio.load()
     await dom.audio.play().catch(() => setStatus('clique no play', 'info'))
+    refreshPlayPauseIcon()
 
     const queuedRow = state.queue.find((item) => item.videoId === track.videoId)
     const enriched = {
@@ -287,7 +391,7 @@ async function play(track, queue) {
       thumbnail: track.thumbnail || queuedRow?.thumbnail || '',
     }
     state.current = enriched
-    if (location.hash.startsWith('#/watch/')) renderWatch(enriched)
+    refreshNowPlayingView()
     dom.title.textContent = enriched.title
     dom.artist.textContent = enriched.artist
     dom.art.src = enriched.thumbnail || ''
@@ -305,8 +409,12 @@ async function play(track, queue) {
   }
 }
 
+function watchListId() {
+  return new URLSearchParams(location.hash.split('?')[1] ?? '').get('list') ?? ''
+}
+
 function watch(videoId) {
-  if (state.current?.videoId === videoId && dom.audio.src) {
+  if (state.current?.videoId === videoId && dom.audio.src && !watchListId()) {
     renderWatch(state.current)
     return
   }
@@ -319,13 +427,30 @@ function watch(videoId) {
     thumbnail: '',
   }
   play(track, state.queue.length ? state.queue : [track])
-  loadQueue(videoId)
+  loadQueue(videoId, watchListId())
 }
 
-async function loadQueue(videoId) {
+async function playMix(playlistId) {
+  setStatus('abrindo a mix…')
   try {
-    const queue = await api.queue(videoId)
-    if (location.hash !== `#/watch/${videoId}` || queue.length === 0) return
+    const queue = await api.queue('', playlistId)
+    const first = queue[0]
+    if (!first?.videoId) {
+      setStatus('mix sem faixas', 'error')
+      return
+    }
+    state.queue = queue
+    location.hash = `#/watch/${first.videoId}?list=${encodeURIComponent(playlistId)}`
+  } catch (error) {
+    setStatus(error.message ?? 'falha ao abrir a mix', 'error')
+  }
+}
+
+async function loadQueue(videoId, playlistId) {
+  try {
+    const queue = playlistId ? await api.queue(videoId, playlistId) : await api.queue(videoId)
+    const hash = location.hash.replace(/^#/, '')
+    if (!hash.startsWith(`/watch/${videoId}`) || queue.length === 0) return
     state.queue = queue
     const row = queue.find((item) => item.videoId === videoId)
     if (!row || state.current?.videoId !== videoId) return
@@ -380,11 +505,119 @@ function isHomeRoute() {
   return hash === '/' || hash === ''
 }
 
-async function loadHome() {
+function readHomeFeed(payload) {
+  if (Array.isArray(payload)) return { chips: [], shelves: payload, message: '', header: null }
+  return {
+    chips: Array.isArray(payload?.chips) ? payload.chips : [],
+    shelves: Array.isArray(payload?.shelves) ? payload.shelves : [],
+    message: payload?.message ?? '',
+    header: payload?.header ?? null,
+  }
+}
+
+function albumQueue(feed) {
+  return (feed?.shelves?.[0]?.tracks ?? []).filter((track) => track.videoId)
+}
+
+function albumPlayTarget(feed) {
+  const queue = albumQueue(feed)
+  return queue.find((track) => track.videoId === feed?.header?.videoId) ?? queue[0] ?? null
+}
+
+function browseEmpty(browseId, message) {
+  const login =
+    browseId === LIBRARY_BROWSE_ID
+      ? ' <button type="button" class="link-button" data-open-login>Fazer login</button>'
+      : ''
+  return `<p class="empty">${escapeHtml(message || 'Nada por aqui agora.')}${login}</p>`
+}
+
+function relatedShelvesHtml(shelves) {
+  return (shelves ?? [])
+    .map(
+      (shelf) => `<section class="shelf">
+        <div class="shelf-head">
+          <div>
+            <h2 class="section-title">${escapeHtml(shelf.title)}</h2>
+            <p class="shelf-sub">${shelf.tracks.length} faixas</p>
+          </div>
+        </div>
+        <div class="shelf-rail">${shelf.tracks.map(shelfCard).join('')}</div>
+      </section>`,
+    )
+    .join('')
+}
+
+function renderBrowsePage(browseId, feed) {
+  const title = feedHeading(browseId)
+  const shelves = relatedShelvesHtml(feed.shelves)
+  dom.main.innerHTML = `
+    <section class="hero">
+      <span class="pulse-dot" aria-hidden="true"></span>
+      <h1>${escapeHtml(title)}</h1>
+    </section>
+    ${shelves || browseEmpty(browseId, feed.message)}`
+}
+
+function renderAlbumPage(browseId, feed) {
+  state.album = { browseId, feed }
+  const header = feed.header
+  const [tracklist, ...related] = feed.shelves ?? []
+  const tracks = tracklist?.tracks ?? []
+  const playTrack = albumPlayTarget(feed)
+  const artistThumb = header.artistThumbnail
+    ? `<img class="album-artist-img" src="${escapeHtml(header.artistThumbnail)}" alt="" />`
+    : ''
+  const playButton = playTrack
+    ? `<button class="album-play" type="button" ${playAttrs(playTrack)} aria-label="Tocar álbum">${ICON_PLAY}</button>`
+    : ''
+  const list = tracks.length
+    ? `<ol class="track-list album-tracks">${tracks.map(albumRow).join('')}</ol>`
+    : `<p class="empty">Este álbum veio sem faixas.</p>`
+  dom.main.innerHTML = `
+    <section class="album-spread">
+      <div class="album-hero">
+        <p class="album-artist">${artistThumb}<span>${escapeHtml(header.artist)}</span></p>
+        ${art({ thumbnail: header.thumbnail }, 'album-cover')}
+        <h1>${escapeHtml(header.title)}</h1>
+        <p class="album-subtitle">${escapeHtml(header.subtitle)}</p>
+        <p class="album-meta">${escapeHtml(header.secondSubtitle)}</p>
+        ${playButton}
+      </div>
+      ${list}
+    </section>
+    ${relatedShelvesHtml(related)}`
+}
+
+async function loadBrowse(browseId) {
+  renderGuide()
+  dom.chips.innerHTML = ''
+  const label = isAlbumBrowseId(browseId) ? 'álbum' : feedHeading(browseId)
+  dom.main.innerHTML = `<p class="empty">Carregando ${escapeHtml(label)}…</p>`
   try {
-    state.shelves = await api.home()
+    const feed = readHomeFeed(await api.browse(browseId))
+    if (browseIdFromPath(location.hash) !== browseId) return
+    if (feed.header) renderAlbumPage(browseId, feed)
+    else {
+      state.album = null
+      renderBrowsePage(browseId, feed)
+    }
+  } catch (error) {
+    if (browseIdFromPath(location.hash) !== browseId) return
+    state.album = null
+    dom.main.innerHTML = `<p class="empty">Falha ao carregar: ${escapeHtml(error.message)}</p>`
+  }
+}
+
+async function loadHome(args = {}) {
+  try {
+    const feed = readHomeFeed(await api.home(args))
+    state.shelves = feed.shelves
+    state.chips = feed.chips
     state.homeLoaded = true
-    if (isHomeRoute()) renderHome()
+    if (!isHomeRoute()) return
+    renderMoodChips()
+    renderHome()
   } catch (error) {
     state.homeLoaded = true
     if (!isHomeRoute()) return
@@ -436,14 +669,36 @@ async function loadSuggestions(term) {
   }
 }
 
+function closeAccountMenu() {
+  dom.accountMenu.hidden = true
+  dom.account.setAttribute('aria-expanded', 'false')
+}
+
+function openAccountMenu() {
+  const model = accountMenuModel(state.account)
+  if (!model) return
+  dom.accountMenu.innerHTML = renderAccountMenu(model)
+  dom.accountMenu.hidden = false
+  dom.account.setAttribute('aria-expanded', 'true')
+}
+
+function paintAccount(account) {
+  const label = accountLabel(account)
+  dom.account.dataset.loggedIn = account?.loggedIn ? 'true' : 'false'
+  dom.account.title = account?.email || label
+  dom.account.innerHTML = renderAccountButton(account)
+  if (!account?.loggedIn) closeAccountMenu()
+  else if (!dom.accountMenu.hidden) openAccountMenu()
+}
+
 async function refreshAccount() {
   try {
     const account = await api.authState()
     state.account = account
-    dom.account.textContent = accountLabel(account)
-    dom.account.dataset.loggedIn = account?.loggedIn ? 'true' : 'false'
+    paintAccount(account)
   } catch (_error) {
-    dom.account.textContent = accountLabel(null)
+    state.account = null
+    paintAccount(null)
   }
 }
 
@@ -506,6 +761,7 @@ function route() {
   if (path === '/search') {
     const query = params.get('q') ?? ''
     dom.input.value = query
+    renderSearchChips()
     runSearch(query)
     return
   }
@@ -513,7 +769,12 @@ function route() {
     watch(path.slice('/watch/'.length))
     return
   }
+  if (path.startsWith('/browse/')) {
+    loadBrowse(browseIdFromPath(path))
+    return
+  }
   dom.input.value = ''
+  if (state.chips.length) renderMoodChips()
   if (path === '/favorites') {
     renderFavorites()
     return
@@ -555,6 +816,14 @@ function wireEvents() {
   })
 
   dom.chips.addEventListener('click', (event) => {
+    const mood = event.target.closest('[data-chip-params]')
+    if (mood) {
+      for (const item of dom.chips.querySelectorAll('.chip'))
+        item.classList.toggle('is-active', item === mood)
+      if (!isHomeRoute()) location.hash = '#/'
+      loadHome({ params: mood.dataset.chipParams })
+      return
+    }
     const chip = event.target.closest('[data-filter]')
     if (!chip) return
     state.filter = chip.dataset.filter
@@ -575,9 +844,43 @@ function wireEvents() {
       loadHome()
       return
     }
-    const row = event.target.closest('[data-video-id]')
+    if (event.target.closest('[data-open-login]')) {
+      openLogin()
+      return
+    }
+    const row = event.target.closest('[data-browse-id], [data-video-id], [data-playlist-id]')
     if (!row) return
-    location.hash = `#/watch/${row.dataset.videoId}`
+    const browseId = row.dataset.browseId
+    if (isAlbumBrowseId(browseId)) {
+      if (row.tagName !== 'A') location.hash = catalogHref({ browseId })
+      return
+    }
+    const videoId = row.dataset.videoId
+    const playlistId = row.dataset.playlistId
+    if (isAlbumBrowseId(browseIdFromPath(location.hash)) && videoId) {
+      const queue = albumQueue(state.album?.feed)
+      const track = queue.find((item) => item.videoId === videoId)
+      if (track) {
+        play(track, queue)
+        return
+      }
+    }
+    if (videoId) {
+      const list = playlistId ? `?list=${encodeURIComponent(playlistId)}` : ''
+      location.hash = `#/watch/${videoId}${list}`
+      return
+    }
+    if (playlistId) playMix(playlistId)
+  })
+
+  dom.guide.addEventListener('click', (event) => {
+    const link = event.target.closest('[data-browse]')
+    if (!link) return
+    const browseId = link.dataset.browse
+    if (browseIdFromPath(location.hash) !== browseId) return
+    event.preventDefault()
+    if (browseId === HOME_BROWSE_ID) loadHome()
+    else loadBrowse(browseId)
   })
 
   dom.favorites.addEventListener('click', () => {
@@ -594,14 +897,9 @@ function wireEvents() {
   dom.next.addEventListener('click', () => step(1))
   dom.prev.addEventListener('click', () => step(-1))
   dom.audio.addEventListener('ended', () => step(1))
-  dom.audio.addEventListener('play', () => {
-    dom.iconPlay.hidden = true
-    dom.iconPause.hidden = false
-  })
-  dom.audio.addEventListener('pause', () => {
-    dom.iconPlay.hidden = false
-    dom.iconPause.hidden = true
-  })
+  dom.audio.addEventListener('play', refreshPlayPauseIcon)
+  dom.audio.addEventListener('playing', refreshPlayPauseIcon)
+  dom.audio.addEventListener('pause', refreshPlayPauseIcon)
   dom.audio.addEventListener('error', () => {
     if (!state.audioBase || state.variantFallback) {
       setStatus('áudio indisponível para esta faixa', 'error')
@@ -637,8 +935,30 @@ function wireEvents() {
   dom.loginDialog.addEventListener('close', () => clearInterval(state.loginTimer))
 
   dom.account.addEventListener('click', () => {
-    if (state.account?.loggedIn) dom.logoutDialog.showModal()
-    else openLogin()
+    if (state.account?.loggedIn) {
+      if (dom.accountMenu.hidden) openAccountMenu()
+      else closeAccountMenu()
+      return
+    }
+    openLogin()
+  })
+  dom.accountMenu.addEventListener('click', (event) => {
+    if (event.target.closest('.account-menu-manage')) {
+      closeAccountMenu()
+      return
+    }
+    const action = event.target.closest('[data-account-action]')?.dataset.accountAction
+    if (!action) return
+    event.preventDefault()
+    closeAccountMenu()
+    if (action === 'switch') openLogin()
+    if (action === 'logout') dom.logoutDialog.showModal()
+  })
+  document.addEventListener('click', (event) => {
+    if (!dom.accountSlot.contains(event.target)) closeAccountMenu()
+  })
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeAccountMenu()
   })
   // Closing the dialog keeps the poll alive: Google can take a couple of
   // minutes and the token must still land when the user approves.
@@ -699,7 +1019,7 @@ async function boot() {
     .catch(() => renderGuide([{ label: 'Home', browseId: 'FEmusic_home' }]))
   await refreshAccount()
 
-  if (!state.shelves.length) await loadHome()
+  if (isHomeRoute() && !state.shelves.length) await loadHome()
 }
 
 boot()

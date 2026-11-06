@@ -1,16 +1,22 @@
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { createServer } from 'node:http'
 import { extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { parseCommand } from '../src/devParsers.mjs'
-import { upstreamRequest } from '../src/devUpstream.mjs'
+import { bindYoutubeSession, sessionIsYoutubeBound } from '../src/authCookies.mjs'
+import { parseCommand, parseListAccountRows, parseListAccounts } from '../src/devParsers.mjs'
+import {
+  ANDROID_USER_AGENT,
+  WEB_USER_AGENT,
+  innertubeSessionHeaders,
+  upstreamRequest,
+} from '../src/devUpstream.mjs'
+import { playbackSource } from '../src/playback.mjs'
+import { mergeAccount } from '../src/session.mjs'
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const PORT = Number(process.env.PORT ?? 8794)
-const USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36'
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -56,8 +62,51 @@ async function proxyCommand(command, request, response) {
   }
   try {
     if (command === 'auth_state') {
+      const creds = (await credentialsForInnertube()) ?? loadCredentials()
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-      response.end(JSON.stringify({ loggedIn: false, displayName: '' }))
+      if (!creds?.sapisid) {
+        response.end(
+          JSON.stringify({
+            loggedIn: false,
+            displayName: '',
+            email: '',
+            handle: '',
+            photoUrl: '',
+            accounts: [],
+          }),
+        )
+        return
+      }
+      const accounts = await listGoogleAccounts(creds)
+      const listed = accounts[0] ?? parseListAccounts({})
+      let menu = { displayName: '', email: '', handle: '', photoUrl: '' }
+      try {
+        const upstream = upstreamRequest('music_account', {})
+        const upstreamResponse = await fetch(upstream.url, {
+          method: 'POST',
+          headers: innertubeHeaders('music_account', WEB_USER_AGENT),
+          body: JSON.stringify(upstream.body),
+        })
+        if (upstreamResponse.ok) {
+          menu = parseCommand('music_account', await upstreamResponse.json())
+        }
+      } catch (_error) {
+        // Innertube account_menu is optional; ListAccounts carries the email.
+      }
+      const account = mergeAccount(listed, menu, {
+        displayName: creds.display_name ?? '',
+        email: creds.email ?? '',
+      })
+      response.end(
+        JSON.stringify({
+          loggedIn: true,
+          displayName: account.displayName,
+          email: account.email,
+          handle: account.handle,
+          photoUrl: account.photoUrl,
+          accounts,
+        }),
+      )
       return
     }
     if (command === 'auth_logout') {
@@ -81,10 +130,11 @@ async function proxyCommand(command, request, response) {
       response.end(JSON.stringify(`/audio/${args.videoId}`))
       return
     }
+    await credentialsForInnertube()
     const upstream = upstreamRequest(command, args)
     const upstreamResponse = await fetch(upstream.url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'user-agent': USER_AGENT },
+      headers: innertubeHeaders(command, upstream.userAgent),
       body: JSON.stringify(upstream.body),
     })
     const payload = await upstreamResponse.text()
@@ -99,12 +149,13 @@ async function proxyCommand(command, request, response) {
     // with the same shapes (see src/devParsers.mjs).
     let parsed = parseCommand(command, JSON.parse(payload))
     // Anonymous FEmusic_home is flaky; mirror the Rust fallback to explore.
-    if (command === 'music_home' && parsed.length === 0) {
+    // Mood-chip filters stay on home — explore is a different page.
+    if (command === 'music_home' && homeIsEmpty(parsed) && !args.params) {
       const explore = upstreamRequest('music_home', args)
       explore.body.browseId = 'FEmusic_explore'
       const retry = await fetch(upstream.url, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'user-agent': USER_AGENT },
+        headers: innertubeHeaders('music_home', WEB_USER_AGENT),
         body: JSON.stringify(explore.body),
       })
       parsed = parseCommand('music_home', await retry.json())
@@ -133,16 +184,84 @@ function parseRange(header, total) {
   return end <= start ? null : { start, end }
 }
 
-function authCookies() {
+function credentialsPath() {
+  return join(homedir(), 'Library/Application Support/com.gestaobem.ourtube-music/credentials.json')
+}
+
+function loadCredentials() {
   try {
-    const path = join(
-      homedir(),
-      'Library/Application Support/com.gestaobem.ourtube-music/credentials.json',
-    )
-    return JSON.parse(readFileSync(path, 'utf8')).cookies ?? ''
+    return JSON.parse(readFileSync(credentialsPath(), 'utf8'))
   } catch (_error) {
-    return ''
+    return null
   }
+}
+
+function saveCredentials(creds) {
+  writeFileSync(credentialsPath(), `${JSON.stringify(creds, null, 2)}\n`, { mode: 0o600 })
+}
+
+let bindPromise
+
+async function credentialsForInnertube() {
+  const creds = loadCredentials()
+  if (!creds?.sapisid) return creds
+  if (sessionIsYoutubeBound(creds)) return creds
+  if (!bindPromise) {
+    bindPromise = bindYoutubeSession(creds)
+      .then((next) => {
+        saveCredentials(next)
+        return next
+      })
+      .catch((error) => {
+        bindPromise = null
+        console.error(`youtube SetSID failed: ${error.message}`)
+        return creds
+      })
+  }
+  return bindPromise
+}
+
+async function listGoogleAccounts(creds) {
+  if (!creds?.identity_cookies) return []
+  try {
+    const response = await fetch(
+      'https://accounts.google.com/ListAccounts?gpsia=1&source=ogb&json=standard',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          origin: 'https://ogs.google.com',
+          referer: 'https://ogs.google.com/',
+          cookie: creds.identity_cookies,
+          'user-agent': WEB_USER_AGENT,
+        },
+        body: 'gpsia=1&source=ogb&json=standard',
+      },
+    )
+    if (!response.ok) return []
+    return parseListAccountRows(await response.json())
+  } catch (_error) {
+    return []
+  }
+}
+
+function authCookies() {
+  return loadCredentials()?.cookies ?? ''
+}
+
+function innertubeHeaders(command, userAgent) {
+  const creds = loadCredentials()
+  return innertubeSessionHeaders({
+    command,
+    userAgent,
+    cookies: creds?.cookies ?? '',
+    sapisid: creds?.sapisid ?? '',
+    timestamp: Math.floor(Date.now() / 1000),
+  })
+}
+
+function homeIsEmpty(feed) {
+  return !Array.isArray(feed?.shelves) || feed.shelves.length === 0
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -157,14 +276,11 @@ async function downloadMedia(url) {
     for (const size of RANGE_WINDOWS) {
       const candidate = await fetch(url, {
         headers: {
-          'user-agent': USER_AGENT,
-          cookie: authCookies(),
+          'user-agent': ANDROID_USER_AGENT,
           range: `bytes=${offset}-${offset + size - 1}`,
         },
       })
-      debugMedia(
-        `${offset} window=${size} status=${candidate.status} cookies=${authCookies().length}`,
-      )
+      debugMedia(`${offset} window=${size} status=${candidate.status}`)
       if (candidate.status !== 403) {
         response = candidate
         break
@@ -202,14 +318,15 @@ async function proxyAudio(videoId, variant, request, response) {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'user-agent': USER_AGENT,
+          'user-agent': upstream.userAgent,
           cookie: authCookies(),
         },
         body: JSON.stringify(upstream.body),
       })
       const stream = parseCommand('music_stream', await playerResponse.json(), { variant })
-      const bytes = await downloadMedia(stream.audioUrl)
-      entry = { mime: stream.mimeType, bytes, at: Date.now() }
+      const source = playbackSource(stream, variant || undefined)
+      const bytes = await downloadMedia(source.url)
+      entry = { mime: source.mimeType, bytes, at: Date.now() }
       mediaCache.set(key, entry)
     }
     const slice = parseRange(request.headers.range, entry.bytes.length)

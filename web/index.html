@@ -56,10 +56,19 @@
           <ul id="recent" class="rail-list"></ul>
         </div>
 
-        <p class="rail-note">
-          Innertube mapeado em 05/11/2026 — browse, search, next, player, guide, account_menu,
-          sugestões.
-        </p>
+        <div class="account-slot" id="account-slot">
+          <div id="account-menu" class="account-menu" hidden role="menu"></div>
+          <button
+            id="account"
+            class="account"
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            aria-controls="account-menu"
+          >
+            Entrar com Google
+          </button>
+        </div>
       </aside>
 
       <div class="shell">
@@ -80,7 +89,7 @@
               id="search-input"
               name="q"
               type="search"
-              placeholder="O que você quer ouvir?"
+              placeholder="Pesquise músicas, álbuns, artistas e podcasts"
               aria-label="Buscar no YouTube Music"
             />
             <ul id="suggestions" class="suggestions" hidden></ul>
@@ -93,7 +102,6 @@
           </div>
 
           <div class="topbar-actions">
-            <button id="account" class="account" type="button">Entrar com Google</button>
             <button id="theme-toggle" class="icon-button" type="button" aria-label="Alternar tema">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
                 <circle cx="12" cy="12" r="3.6"></circle>
