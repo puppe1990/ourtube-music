@@ -1,6 +1,6 @@
 {
   "name": "ourtube-music",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Leitor desktop dos endpoints internos do YouTube Music (Innertube WEB_REMIX/ANDROID), em Tauri 2",

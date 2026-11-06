@@ -78,6 +78,12 @@ test('last.fm rail button uses the crimson connected mark', () => {
   assert.match(cssRule(".lastfm[data-connected='true']"), /border-color:\s*var\(--red\)/)
 })
 
+test('dock repeat and shuffle light up crimson when active', () => {
+  assert.match(cssRule(".repeat[data-mode='all']"), /color:\s*var\(--red\)/)
+  assert.match(cssRule(".repeat[data-mode='one']"), /color:\s*var\(--red\)/)
+  assert.match(cssRule(".shuffle[aria-pressed='true']"), /color:\s*var\(--red\)/)
+})
+
 test('expand-player is a dark circle with a white up-triangle', () => {
   const button = cssRule('.expand-player')
 
@@ -94,4 +100,24 @@ test('now-playing overlay covers the canvas above the dock with a large cover', 
   assert.match(overlay, /inset:\s*0 0 var\(--dock\) 0/)
   assert.match(art, /width:\s*min\(/)
   assert.match(art, /aspect-ratio:\s*1/)
+})
+
+test('lyrics sheet covers the canvas above the dock with large centered lines', () => {
+  const overlay = cssRule('.lyrics')
+  const lines = cssRule('.lyrics-lines')
+
+  assert.match(overlay, /position:\s*absolute/)
+  assert.match(overlay, /inset:\s*0 0 var\(--dock\) 0/)
+  assert.match(lines, /text-align:\s*center/)
+  assert.match(lines, /font-size:\s*28px/)
+})
+
+test('karaoke current line is white while past and upcoming stay dim', () => {
+  const current = cssRule('.lyrics-lines p.is-current')
+  const past = cssRule('.lyrics-lines p.is-past')
+  const upcoming = cssRule('.lyrics-lines p.is-upcoming')
+
+  assert.match(current, /color:\s*#ededed/)
+  assert.match(past, /rgba\(237,\s*237,\s*237,\s*0\.28\)/)
+  assert.match(upcoming, /rgba\(237,\s*237,\s*237,\s*0\.48\)/)
 })

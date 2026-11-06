@@ -10,6 +10,8 @@ import {
   parseHomeFeed,
   parseHomeShelves,
   parseListAccounts,
+  parseLyrics,
+  parseLyricsBrowseId,
   parseQueue,
   parseSearchResults,
   parseStream,
@@ -412,6 +414,36 @@ test('queue reads the playlist panel order', () => {
   assert.equal(tracks.length, 1)
   assert.equal(tracks[0].videoId, 'q-1')
   assert.equal(tracks[0].duration, '4:02')
+})
+
+test('queue splits artist and album out of a YouTube byline', () => {
+  const artist = faker.music.artist()
+  const album = faker.music.album()
+  const views = `${faker.number.int({ min: 20, max: 900 })} mil visualizações`
+  const title = faker.music.songName()
+  const videoId = faker.string.alphanumeric(11)
+
+  const tracks = parseQueue({
+    contents: {
+      playlistPanelRenderer: {
+        contents: [
+          {
+            playlistPanelVideoRenderer: {
+              videoId,
+              title: runs(title),
+              longBylineText: runs(`${artist} • ${album} • ${views}`),
+              lengthText: runs('3:41'),
+              thumbnail: thumbs('https://img/q'),
+            },
+          },
+        ],
+      },
+    },
+  })
+
+  assert.equal(tracks[0].title, title)
+  assert.equal(tracks[0].artist, artist)
+  assert.equal(tracks[0].album, album)
 })
 
 test('stream prefers MP4 audio over the higher-bitrate Opus/WebM', () => {
@@ -1119,4 +1151,141 @@ test('top song keeps the album column when it repeats the title', () => {
   assert.equal(feed.shelves[0].tracks[0].artist, artist)
   assert.equal(feed.shelves[0].tracks[0].album, song)
   assert.equal(feed.shelves[0].tracks[0].playCount, playCount)
+})
+
+test('top song keeps views as play count instead of the album', () => {
+  const artist = faker.music.artist()
+  const song = faker.music.songName()
+  const album = faker.music.album()
+  const videoId = faker.string.alphanumeric(11)
+  const playCount = `${faker.number.int({ min: 40, max: 900 })} mil visualizações`
+
+  const feed = parseHomeFeed({
+    contents: {
+      musicShelfRenderer: {
+        title: runs('Top músicas'),
+        contents: [
+          {
+            musicResponsiveListItemRenderer: {
+              flexColumns: [
+                { musicResponsiveListItemFlexColumnRenderer: { text: runs(song) } },
+                { musicResponsiveListItemFlexColumnRenderer: { text: runs(artist) } },
+                { musicResponsiveListItemFlexColumnRenderer: { text: runs(playCount) } },
+                { musicResponsiveListItemFlexColumnRenderer: { text: runs(album) } },
+              ],
+              playlistItemData: { videoId },
+            },
+          },
+        ],
+      },
+    },
+  })
+
+  const track = feed.shelves[0].tracks[0]
+  assert.equal(track.title, song)
+  assert.equal(track.artist, artist)
+  assert.equal(track.album, album)
+  assert.equal(track.playCount, playCount)
+})
+
+function lyricsTab({ browseId, pageType, title = 'Letra', unselectable }) {
+  const tab = {
+    tabRenderer: {
+      title,
+      endpoint: {
+        browseEndpoint: {
+          browseId,
+          browseEndpointContextSupportedConfigs: {
+            browseEndpointContextMusicConfig: { pageType },
+          },
+        },
+      },
+    },
+  }
+  if (unselectable) tab.tabRenderer.unselectable = true
+  return tab
+}
+
+test('lyrics browse id comes from the TRACK_LYRICS watch tab', () => {
+  const lyricsId = `MPLYt_${faker.string.alphanumeric(16)}`
+  const relatedId = `MPREl_${faker.string.alphanumeric(16)}`
+  const payload = {
+    contents: {
+      singleColumnMusicWatchNextResultsRenderer: {
+        tabbedRenderer: {
+          watchNextTabbedResultsRenderer: {
+            tabs: [
+              { tabRenderer: { title: 'A seguir', content: { musicQueueRenderer: {} } } },
+              lyricsTab({ browseId: lyricsId, pageType: 'MUSIC_PAGE_TYPE_TRACK_LYRICS' }),
+              lyricsTab({
+                browseId: relatedId,
+                pageType: 'MUSIC_PAGE_TYPE_TRACK_RELATED',
+                title: 'Relacionadas',
+              }),
+            ],
+          },
+        },
+      },
+    },
+  }
+
+  assert.equal(parseLyricsBrowseId(payload), lyricsId)
+})
+
+test('lyrics browse id skips an unselectable lyrics tab', () => {
+  const lyricsId = `MPLYt_${faker.string.alphanumeric(16)}`
+  const payload = {
+    tabs: [
+      lyricsTab({
+        browseId: lyricsId,
+        pageType: 'MUSIC_PAGE_TYPE_TRACK_LYRICS',
+        unselectable: true,
+      }),
+    ],
+  }
+
+  assert.equal(parseLyricsBrowseId(payload), '')
+})
+
+test('lyrics parser splits the description shelf into lines and a source', () => {
+  const lineOne = faker.lorem.sentence()
+  const lineTwo = faker.lorem.sentence()
+  const source = `Source: ${faker.company.name()}`
+  const payload = {
+    contents: {
+      sectionListRenderer: {
+        contents: [
+          {
+            musicDescriptionShelfRenderer: {
+              header: runs('Letra'),
+              description: runs(`${lineOne}\n\n${lineTwo}`),
+              footer: runs(source),
+            },
+          },
+        ],
+      },
+    },
+  }
+
+  const lyrics = parseLyrics(payload)
+
+  assert.deepEqual(lyrics.lines, [lineOne, lineTwo])
+  assert.equal(lyrics.source, source)
+  assert.equal(lyrics.message, '')
+})
+
+test('lyrics parser keeps the Innertube empty message when the shelf is missing', () => {
+  const message = faker.lorem.sentence()
+  const payload = {
+    contents: {
+      sectionListRenderer: {
+        contents: [{ messageRenderer: { text: runs(message) } }],
+      },
+    },
+  }
+
+  const lyrics = parseLyrics(payload)
+
+  assert.deepEqual(lyrics.lines, [])
+  assert.equal(lyrics.message, message)
 })

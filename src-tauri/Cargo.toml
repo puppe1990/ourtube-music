@@ -1,6 +1,6 @@
 [package]
 name = "ourtube-music"
-version = "0.1.0"
+version = "0.2.0"
 description = "OurTube Music — leitor dos endpoints internos do YouTube Music (Innertube WEB_REMIX/IOS)"
 edition = "2021"
 

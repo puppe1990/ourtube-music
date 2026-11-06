@@ -33,6 +33,7 @@ Chaves Last.fm e sessão Google ficam em `<app_config_dir>/` (`lastfm.json`,
 | `music_browse`      | `POST /youtubei/v1/browse` (Explorar/Biblioteca) | WEB_REMIX   |
 | `music_search`      | `POST /youtubei/v1/search`                       | WEB_REMIX   |
 | `music_queue`       | `POST /youtubei/v1/next`                         | WEB_REMIX   |
+| `music_lyrics`      | `/next` → `MPLYt_*` then browse; LRCLib for cues | WEB_REMIX   |
 | `music_stream`      | `POST /youtubei/v1/player`                       | **ANDROID** |
 | `music_suggestions` | `POST /youtubei/v1/music/get_search_suggestions` | WEB_REMIX   |
 | `music_guide`       | `POST /youtubei/v1/guide`                        | WEB_REMIX   |

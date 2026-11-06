@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::audio_proxy::{audio_path, AudioProxy};
 use crate::auth;
 use crate::innertube::client::MusicClient;
-use crate::innertube::models::{Account, GuideEntry, HomeFeed, Stream, Track};
+use crate::innertube::models::{Account, GuideEntry, HomeFeed, Lyrics, Stream, Track};
 use crate::session::AuthSession;
 
 /// The innertube calls are blocking (reqwest::blocking), so every command hands
@@ -67,6 +67,26 @@ pub async fn music_queue(
         authenticated(&session).queue(
             &video_id.unwrap_or_default(),
             &playlist_id.unwrap_or_default(),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn music_lyrics(
+    session: tauri::State<'_, Arc<AuthSession>>,
+    video_id: String,
+    title: Option<String>,
+    artist: Option<String>,
+    duration_sec: Option<f64>,
+) -> Result<Lyrics, String> {
+    let session = Arc::clone(session.inner());
+    on_blocking_pool(move || {
+        authenticated(&session).lyrics(
+            &video_id,
+            title.as_deref().unwrap_or(""),
+            artist.as_deref().unwrap_or(""),
+            duration_sec.unwrap_or(0.0),
         )
     })
     .await

@@ -144,6 +144,30 @@
 
         <div class="dock-center">
           <div class="dock-controls">
+            <button
+              id="repeat"
+              class="icon-button repeat"
+              type="button"
+              data-mode="off"
+              aria-label="Repetir"
+              aria-pressed="false"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M17 3.2 20.8 7 17 10.8"></path>
+                <path d="M4 12.2V8.6A4.6 4.6 0 0 1 8.6 4H20.8"></path>
+                <path d="M7 20.8 3.2 17 7 13.2"></path>
+                <path d="M20 11.8v3.6A4.6 4.6 0 0 1 15.4 20H3.2"></path>
+              </svg>
+              <span id="repeat-one" class="repeat-one" hidden>1</span>
+            </button>
             <button id="prev" class="icon-button" type="button" aria-label="Anterior">
               <svg viewBox="0 0 24 24" fill="currentColor">
                 <path d="M6 5h2v14H6zM18 5l-9 7 9 7z"></path>
@@ -160,6 +184,30 @@
             <button id="next" class="icon-button" type="button" aria-label="Próxima">
               <svg viewBox="0 0 24 24" fill="currentColor">
                 <path d="M6 5l9 7-9 7zM17 5h2v14h-2z"></path>
+              </svg>
+            </button>
+            <button
+              id="shuffle"
+              class="icon-button shuffle"
+              type="button"
+              aria-label="Ordem aleatória"
+              aria-pressed="false"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M16 3h5v5"></path>
+                <path d="M4 20l6.5-6.5"></path>
+                <path d="M21 8l-6.5 6.5"></path>
+                <path d="M16 21h5v-5"></path>
+                <path d="M15 15l6 6"></path>
+                <path d="M4 4l5 5"></path>
               </svg>
             </button>
           </div>
@@ -201,6 +249,20 @@
             aria-label="Volume"
           />
           <button
+            id="open-lyrics"
+            class="lyrics-toggle"
+            type="button"
+            aria-label="Letra"
+            aria-expanded="false"
+            aria-controls="lyrics"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path
+                d="M10 4.2v11.5a2.7 2.7 0 1 1-1.5-2.4V7.1L19 5.4v7.5a2.7 2.7 0 1 1-1.5-2.4V3.4z"
+              ></path>
+            </svg>
+          </button>
+          <button
             id="expand-player"
             class="expand-player"
             type="button"
@@ -235,6 +297,48 @@
             <span id="now-playing-artist"></span>
           </div>
         </div>
+      </section>
+
+      <section id="lyrics" class="lyrics" hidden aria-hidden="true">
+        <img id="lyrics-backdrop" class="lyrics-backdrop" alt="" />
+        <header class="lyrics-bar">
+          <h2>Letra</h2>
+          <button id="close-lyrics" class="lyrics-close" type="button" aria-label="Fechar letra">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              aria-hidden="true"
+            >
+              <path d="M6 6l12 12M18 6 6 18"></path>
+            </svg>
+          </button>
+        </header>
+        <div class="lyrics-body">
+          <svg class="lyrics-note" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path
+              d="M10 4.2v11.5a2.7 2.7 0 1 1-1.5-2.4V7.1L19 5.4v7.5a2.7 2.7 0 1 1-1.5-2.4V3.4z"
+            ></path>
+          </svg>
+          <div id="lyrics-lines" class="lyrics-lines"></div>
+        </div>
+        <footer class="lyrics-actions">
+          <button id="share-lyrics" class="lyrics-share" type="button">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              aria-hidden="true"
+            >
+              <path d="M14 6.5 20 12l-6 5.5"></path>
+              <path d="M20 12H9.5"></path>
+              <path d="M9.5 12v6.5A3.5 3.5 0 0 1 6 22H4"></path>
+            </svg>
+            Compartilhar
+          </button>
+        </footer>
       </section>
     </div>
 

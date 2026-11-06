@@ -14,11 +14,32 @@ import {
   shelfCountLabel,
   stepAction,
 } from '/src/guide.mjs'
+import {
+  currentLyricIndex,
+  lyricLineState,
+  lyricsAriaLabel,
+  lyricsUnavailable,
+  renderLyricsHtml,
+  shareLyricsText,
+} from '/src/lyrics.mjs'
 import { largerCoverUrl, nowPlayingAriaLabel, syncNowPlayingGlyphs } from '/src/nowPlaying.mjs'
 import { playPauseAriaLabel, syncPlayPauseIcons } from '/src/playback.mjs'
-import { nextTrack, shouldReplaceQueue, upNext } from '/src/queue.mjs'
+import {
+  followingTrack,
+  nextRepeatMode,
+  repeatButtonLabel,
+  shouldReplaceQueue,
+  shuffleButtonLabel,
+  shuffleQueue,
+  upNext,
+} from '/src/queue.mjs'
 import { accountMenuModel, renderAccountButton, renderAccountMenu } from '/src/accountMenu.mjs'
-import { createLastFmScrobbler, lastFmButtonLabel, lastFmClickAction } from '/src/lastfm.mjs'
+import {
+  createLastFmScrobbler,
+  lastFmButtonLabel,
+  lastFmClickAction,
+  lastFmCredit,
+} from '/src/lastfm.mjs'
 import { accountLabel } from '/src/session.mjs'
 
 const api = createMusicApi(resolveInvoker())
@@ -40,7 +61,12 @@ const state = {
   guide: [],
   album: null,
   nowPlayingOpen: false,
+  lyricsOpen: false,
+  lyrics: { lines: [], cues: [], source: '', message: '' },
+  lyricCursor: -2,
   lastfm: { connected: false, username: '', pending: false, hasKeys: false },
+  repeat: 'off',
+  shuffle: false,
 }
 
 const SEARCH_CHIPS = [
@@ -75,8 +101,11 @@ const dom = {
   playPause: $('#play-pause'),
   iconPlay: $('#icon-play'),
   iconPause: $('#icon-pause'),
+  repeat: $('#repeat'),
+  repeatOne: $('#repeat-one'),
   prev: $('#prev'),
   next: $('#next'),
+  shuffle: $('#shuffle'),
   progress: $('#progress'),
   elapsed: $('#elapsed'),
   total: $('#total'),
@@ -90,6 +119,12 @@ const dom = {
   nowPlayingBackdrop: $('#now-playing-backdrop'),
   nowPlayingTitle: $('#now-playing-title'),
   nowPlayingArtist: $('#now-playing-artist'),
+  openLyrics: $('#open-lyrics'),
+  lyrics: $('#lyrics'),
+  lyricsBackdrop: $('#lyrics-backdrop'),
+  lyricsLines: $('#lyrics-lines'),
+  closeLyrics: $('#close-lyrics'),
+  shareLyrics: $('#share-lyrics'),
   loginDialog: $('#login-dialog'),
 
   loginStatus: $('#login-status'),
@@ -385,14 +420,88 @@ function refreshNowPlayingCover() {
   dom.nowPlayingArtist.textContent = state.current?.artist || dom.artist.textContent
 }
 
-function setNowPlayingOpen(open) {
-  state.nowPlayingOpen = Boolean(open)
+function applyNowPlayingDom() {
   if (state.nowPlayingOpen) refreshNowPlayingCover()
   dom.nowPlaying.toggleAttribute('hidden', !state.nowPlayingOpen)
   dom.nowPlaying.setAttribute('aria-hidden', state.nowPlayingOpen ? 'false' : 'true')
   syncNowPlayingGlyphs(dom.iconExpand, dom.iconCollapse, state.nowPlayingOpen)
   dom.expand.setAttribute('aria-label', nowPlayingAriaLabel(state.nowPlayingOpen))
   dom.expand.setAttribute('aria-expanded', state.nowPlayingOpen ? 'true' : 'false')
+}
+
+function setNowPlayingOpen(open) {
+  if (open && state.lyricsOpen) {
+    state.lyricsOpen = false
+    applyLyricsDom()
+  }
+  state.nowPlayingOpen = Boolean(open)
+  applyNowPlayingDom()
+}
+
+function paintLyrics(lyrics) {
+  const cues = Array.isArray(lyrics?.cues) ? lyrics.cues : []
+  const lines = lyrics?.lines ?? []
+  const message = lyrics?.message || (lines.length || cues.length ? '' : lyricsUnavailable())
+  const timeMs = Math.round((dom.audio.currentTime || 0) * 1000)
+  state.lyricCursor = -2
+  dom.lyricsLines.innerHTML = renderLyricsHtml({ lines, cues, message }, timeMs)
+  const cover = largerCoverUrl(state.current?.thumbnail || dom.art.src)
+  if (cover) dom.lyricsBackdrop.src = cover
+  syncLyricsCursor(true)
+}
+
+function syncLyricsCursor(force = false) {
+  if (!state.lyricsOpen) return
+  const cues = state.lyrics?.cues
+  if (!Array.isArray(cues) || cues.length === 0) return
+  const timeMs = Math.round((dom.audio.currentTime || 0) * 1000)
+  const current = currentLyricIndex(cues, timeMs)
+  if (!force && current === state.lyricCursor) return
+  state.lyricCursor = current
+  const nodes = dom.lyricsLines.querySelectorAll('p[data-start-ms]')
+  nodes.forEach((node, index) => {
+    node.className = lyricLineState(index, current)
+  })
+  const active = current >= 0 ? nodes[current] : nodes[0]
+  active?.scrollIntoView({ block: 'center', behavior: force ? 'auto' : 'smooth' })
+}
+
+function applyLyricsDom() {
+  dom.lyrics.toggleAttribute('hidden', !state.lyricsOpen)
+  dom.lyrics.setAttribute('aria-hidden', state.lyricsOpen ? 'false' : 'true')
+  dom.openLyrics.setAttribute('aria-label', lyricsAriaLabel(state.lyricsOpen))
+  dom.openLyrics.setAttribute('aria-expanded', state.lyricsOpen ? 'true' : 'false')
+}
+
+async function loadLyrics() {
+  const videoId = state.current?.videoId
+  if (!videoId) {
+    paintLyrics({ lines: [], message: lyricsUnavailable() })
+    return
+  }
+  paintLyrics({ lines: [], message: 'Carregando…' })
+  try {
+    const lyrics = await api.lyrics(videoId, {
+      title: state.current?.title || '',
+      artist: state.current?.artist || '',
+      durationSec: Number(dom.audio.duration) || Number(state.current?.durationSec) || undefined,
+    })
+    if (state.current?.videoId !== videoId) return
+    state.lyrics = lyrics
+    paintLyrics(lyrics)
+  } catch (error) {
+    paintLyrics({ lines: [], message: error.message || lyricsUnavailable() })
+  }
+}
+
+function setLyricsOpen(open) {
+  if (open && state.nowPlayingOpen) {
+    state.nowPlayingOpen = false
+    applyNowPlayingDom()
+  }
+  state.lyricsOpen = Boolean(open)
+  applyLyricsDom()
+  if (state.lyricsOpen) loadLyrics()
 }
 
 function findTrack(videoId) {
@@ -416,7 +525,8 @@ function refreshNowPlayingView() {
 
 async function play(track, queue) {
   state.current = track
-  state.queue = queue?.length ? queue : [track]
+  const incoming = queue?.length ? queue : [track]
+  state.queue = state.shuffle ? shuffleQueue(incoming, track.videoId) : incoming
   refreshNowPlayingView()
   dom.player.hidden = false
   dom.title.textContent = track.title || '—'
@@ -439,11 +549,18 @@ async function play(track, queue) {
     refreshPlayPauseIcon()
 
     const queuedRow = state.queue.find((item) => item.videoId === track.videoId)
+    const credit = lastFmCredit({
+      artist: track.artist || stream.author,
+      album: track.album,
+    })
+    const durationSec = Number(stream.duration) || Number(dom.audio.duration)
     const enriched = {
       ...track,
-      title: track.title && track.title !== 'Carregando…' ? track.title : stream.title,
-      artist: track.artist || stream.author,
+      title: stream.title || (track.title !== 'Carregando…' ? track.title : ''),
+      artist: credit.artist || stream.author,
+      album: credit.album,
       duration: track.duration || formatDuration(stream.duration),
+      durationSec,
       thumbnail: track.thumbnail || queuedRow?.thumbnail || '',
     }
     state.current = enriched
@@ -461,8 +578,8 @@ async function play(track, queue) {
     dom.total.textContent = formatDuration(stream.duration)
     setStatus('')
     refreshHeart()
-    const durationSec = Number(stream.duration) || Number(dom.audio.duration)
-    lastFm.onPlay(enriched, durationSec).catch(() => {})
+    lastFm.onPlay(enriched, enriched.durationSec).catch(() => {})
+    if (state.lyricsOpen) loadLyrics()
   } catch (error) {
     setStatus(error.message ?? 'falha ao resolver o áudio', 'error')
   }
@@ -526,12 +643,37 @@ async function loadQueue(videoId, playlistId) {
   }
 }
 
+function paintTransport() {
+  const mode = state.repeat
+  dom.repeat.dataset.mode = mode
+  dom.repeat.setAttribute('aria-pressed', mode === 'off' ? 'false' : 'true')
+  dom.repeat.setAttribute('aria-label', repeatButtonLabel(mode))
+  dom.repeatOne.toggleAttribute('hidden', mode !== 'one')
+  dom.audio.loop = mode === 'one'
+  dom.shuffle.setAttribute('aria-pressed', state.shuffle ? 'true' : 'false')
+  dom.shuffle.setAttribute('aria-label', shuffleButtonLabel(state.shuffle))
+}
+
+function cycleRepeat() {
+  state.repeat = nextRepeatMode(state.repeat)
+  paintTransport()
+}
+
+function toggleShuffle() {
+  state.shuffle = !state.shuffle
+  if (state.shuffle && state.current) {
+    state.queue = shuffleQueue(state.queue, state.current.videoId)
+    refreshNowPlayingView()
+  }
+  paintTransport()
+}
+
 function step(direction) {
   const index = state.queue.findIndex((track) => track.videoId === state.current?.videoId)
   if (index < 0) return
   const following =
     direction > 0
-      ? nextTrack(state.queue, state.current.videoId)
+      ? followingTrack(state.queue, state.current.videoId, { repeat: state.repeat })
       : (state.queue[index - 1] ?? state.queue.at(-1))
   if (!following) return
   const playlistId = watchListId() || following.playlistId || ''
@@ -1131,7 +1273,17 @@ function wireEvents() {
 
   dom.next.addEventListener('click', () => step(1))
   dom.prev.addEventListener('click', () => step(-1))
-  dom.audio.addEventListener('ended', () => step(1))
+  dom.repeat.addEventListener('click', cycleRepeat)
+  dom.shuffle.addEventListener('click', toggleShuffle)
+  paintTransport()
+  dom.audio.addEventListener('ended', () => {
+    if (state.repeat === 'one') {
+      dom.audio.currentTime = 0
+      dom.audio.play().catch(() => setStatus('áudio indisponível', 'error'))
+      return
+    }
+    step(1)
+  })
   dom.audio.addEventListener('play', refreshPlayPauseIcon)
   dom.audio.addEventListener('playing', refreshPlayPauseIcon)
   dom.audio.addEventListener('pause', refreshPlayPauseIcon)
@@ -1160,6 +1312,7 @@ function wireEvents() {
         playedSec: dom.audio.currentTime,
       })
       .catch(() => {})
+    syncLyricsCursor()
   })
   dom.progress.addEventListener('input', () => {
     if (!dom.audio.duration) return
@@ -1206,11 +1359,30 @@ function wireEvents() {
     if (event.key !== 'Escape') return
     closeAccountMenu()
     if (state.nowPlayingOpen) setNowPlayingOpen(false)
+    if (state.lyricsOpen) setLyricsOpen(false)
   })
 
   dom.expand.addEventListener('click', () => {
     if (!state.current) return
     setNowPlayingOpen(!state.nowPlayingOpen)
+  })
+  dom.openLyrics.addEventListener('click', () => {
+    if (!state.current) return
+    setLyricsOpen(!state.lyricsOpen)
+  })
+  dom.closeLyrics.addEventListener('click', () => setLyricsOpen(false))
+  dom.shareLyrics.addEventListener('click', async () => {
+    const text = shareLyricsText({
+      title: state.current?.title,
+      artist: state.current?.artist,
+      lines: state.lyrics?.cues?.length ? state.lyrics.cues : state.lyrics?.lines,
+    })
+    try {
+      await navigator.clipboard.writeText(text)
+      setStatus('letra copiada')
+    } catch (_error) {
+      setStatus('não deu para copiar a letra', 'error')
+    }
   })
   // Closing the dialog keeps the poll alive: Google can take a couple of
   // minutes and the token must still land when the user approves.

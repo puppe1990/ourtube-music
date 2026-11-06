@@ -42,7 +42,7 @@ function splitByline(byline) {
   const parts = String(byline ?? '')
     .split('•')
     .map((part) => part.trim())
-    .filter(Boolean)
+    .filter((part) => part && !looksLikePlayCount(part) && !looksLikeDuration(part))
   if (parts.length === 0) return { artist: '', album: '' }
   if (isCatalogType(parts[0])) return { artist: parts[1] ?? '', album: parts[0] }
   return { artist: parts[0] ?? '', album: parts[1] ?? '' }
@@ -92,7 +92,7 @@ function overlayPlaylistId(node) {
 }
 
 function looksLikePlayCount(text) {
-  return /tocou/i.test(String(text ?? ''))
+  return /(tocou|visualiza|\bviews?\b|\bplays?\b|reprodu)/i.test(String(text ?? ''))
 }
 
 function bylineFields(title, texts) {
@@ -372,18 +372,53 @@ export function parseHomeFeed(payload) {
   }
 }
 
+export function parseLyricsBrowseId(payload) {
+  for (const tab of findNodes(payload, 'tabRenderer')) {
+    if (tab?.unselectable) continue
+    const endpoint = tab.endpoint?.browseEndpoint ?? tab.navigationEndpoint?.browseEndpoint
+    const browseId = endpoint?.browseId ?? ''
+    const pageType = field(
+      endpoint,
+      'browseEndpointContextSupportedConfigs',
+      'browseEndpointContextMusicConfig',
+      'pageType',
+    )
+    if (pageType === 'MUSIC_PAGE_TYPE_TRACK_LYRICS' || browseId.startsWith('MPLYt')) return browseId
+  }
+  return ''
+}
+
+export function parseLyrics(payload) {
+  const [shelf] = findNodes(payload, 'musicDescriptionShelfRenderer')
+  const lines = joinRuns(shelf?.description)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length > 0) {
+    return { lines, source: joinRuns(shelf?.footer), message: '' }
+  }
+  return {
+    lines: [],
+    source: '',
+    message: parseFeedMessage(payload) || 'Letra não disponível',
+  }
+}
+
 export function parseQueue(payload) {
   return findNodes(payload, 'playlistPanelVideoRenderer')
     .filter((row) => row.videoId)
-    .map((row) => ({
-      videoId: row.videoId,
-      playlistId: '',
-      title: joinRuns(row.title),
-      artist: joinRuns(row.longBylineText),
-      album: '',
-      duration: joinRuns(row.lengthText),
-      thumbnail: largestThumbnail(row.thumbnail),
-    }))
+    .map((row) => {
+      const { artist, album } = splitByline(joinRuns(row.longBylineText))
+      return {
+        videoId: row.videoId,
+        playlistId: '',
+        title: joinRuns(row.title),
+        artist,
+        album,
+        duration: joinRuns(row.lengthText),
+        thumbnail: largestThumbnail(row.thumbnail),
+      }
+    })
 }
 
 export function parseStream(payload, variant) {

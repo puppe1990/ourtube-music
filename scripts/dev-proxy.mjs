@@ -7,7 +7,15 @@ import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 
 import { bindYoutubeSession, sessionIsYoutubeBound } from '../src/authCookies.mjs'
-import { parseCommand, parseListAccountRows, parseListAccounts } from '../src/devParsers.mjs'
+import {
+  parseCommand,
+  parseListAccountRows,
+  parseListAccounts,
+  parseLyrics,
+  parseLyricsBrowseId,
+} from '../src/devParsers.mjs'
+import { overlaySyncedLyrics } from '../src/lyrics.mjs'
+import { fetchSyncedLyrics } from '../src/lrclib.mjs'
 import {
   ANDROID_USER_AGENT,
   WEB_USER_AGENT,
@@ -139,6 +147,10 @@ async function proxyCommand(command, request, response) {
     if (command === 'music_audio') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
       response.end(JSON.stringify(`/audio/${args.videoId}`))
+      return
+    }
+    if (command === 'music_lyrics') {
+      await proxyLyrics(args, response)
       return
     }
     await credentialsForInnertube()
@@ -292,6 +304,37 @@ async function listGoogleAccounts(creds) {
 
 function authCookies() {
   return loadCredentials()?.cookies ?? ''
+}
+
+async function proxyLyrics(args, response) {
+  await credentialsForInnertube()
+  const empty = { lines: [], cues: [], source: '', message: 'Letra não disponível' }
+  let lyrics = empty
+  const next = upstreamRequest('music_queue', { videoId: args.videoId })
+  const nextResponse = await fetch(next.url, {
+    method: 'POST',
+    headers: innertubeHeaders('music_queue', next.userAgent),
+    body: JSON.stringify(next.body),
+  })
+  const nextPayload = await nextResponse.json()
+  const browseId = parseLyricsBrowseId(nextPayload)
+  if (browseId) {
+    const browse = upstreamRequest('music_browse', { browseId })
+    const browseResponse = await fetch(browse.url, {
+      method: 'POST',
+      headers: innertubeHeaders('music_browse', browse.userAgent),
+      body: JSON.stringify(browse.body),
+    })
+    lyrics = parseLyrics(await browseResponse.json())
+  }
+  const lrc = await fetchSyncedLyrics({
+    track: args.title,
+    artist: args.artist,
+    durationSec: args.durationSec,
+  })
+  if (lrc) lyrics = overlaySyncedLyrics(lyrics, lrc)
+  response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+  response.end(JSON.stringify(lyrics))
 }
 
 function innertubeHeaders(command, userAgent) {
