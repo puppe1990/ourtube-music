@@ -8,16 +8,16 @@ decrypted network capture with `SSLKEYLOGFILE` on 05/11/2026.
 
 ## What is mapped
 
-| Call                | Endpoint                                                                   | Client    |
-| ------------------- | -------------------------------------------------------------------------- | --------- |
-| Home                | `POST /youtubei/v1/browse` (`FEmusic_home`)                                | WEB_REMIX |
-| Explore / Library   | `POST /youtubei/v1/browse` (`FEmusic_explore` / `FEmusic_library_landing`) | WEB_REMIX |
-| Search              | `POST /youtubei/v1/search`                                                 | WEB_REMIX |
-| Queue / up next     | `POST /youtubei/v1/next`                                                   | WEB_REMIX |
-| Audio stream        | `POST /youtubei/v1/player`                                                 | ANDROID   |
-| Search suggestions  | `POST /youtubei/v1/music/get_search_suggestions`                           | WEB_REMIX |
-| Sidebar navigation  | `POST /youtubei/v1/guide`                                                  | WEB_REMIX |
-| Account             | `POST /youtubei/v1/account/account_menu`                                   | WEB_REMIX |
+| Call               | Endpoint                                                                   | Client    |
+| ------------------ | -------------------------------------------------------------------------- | --------- |
+| Home               | `POST /youtubei/v1/browse` (`FEmusic_home`)                                | WEB_REMIX |
+| Explore / Library  | `POST /youtubei/v1/browse` (`FEmusic_explore` / `FEmusic_library_landing`) | WEB_REMIX |
+| Search             | `POST /youtubei/v1/search`                                                 | WEB_REMIX |
+| Queue / up next    | `POST /youtubei/v1/next`                                                   | WEB_REMIX |
+| Audio stream       | `POST /youtubei/v1/player`                                                 | ANDROID   |
+| Search suggestions | `POST /youtubei/v1/music/get_search_suggestions`                           | WEB_REMIX |
+| Sidebar navigation | `POST /youtubei/v1/guide`                                                  | WEB_REMIX |
+| Account            | `POST /youtubei/v1/account/account_menu`                                   | WEB_REMIX |
 
 WEB_REMIX `/player` returns `UNPLAYABLE`; the ANDROID client returns a direct
 `googlevideo.com` URL on progressive itag 18 (`Range` → `206 video/mp4`).
@@ -36,9 +36,18 @@ the player already answer with your account.
 
 ## Design
 
-UI follows **Obsidian Pulse**: absolute black (`#030303`), tonal surfaces, crimson
-accent `#ff0000`, Plus Jakarta Sans, and a three-module player dock. The same CSS
-variables morph into the light theme (`html[data-theme='light']`).
+UI follows **Obsidian Pulse**: absolute black (`#030303`), tonal surfaces, Plus
+Jakarta Sans (self-hosted), and a three-module player dock. Crimson `#ff0000`
+marks the small accents: the Music wordmark, current rail icon, liked heart,
+account outline, cover play discs, the dock play control, and the playing
+track. Album covers carry the rest of the color. The same CSS variables morph
+into the light theme (`html[data-theme='light']`).
+
+## Download
+
+macOS, Windows, and Linux builds are attached to each
+[GitHub Release](https://github.com/puppe1990/ourtube-music/releases).
+The macOS build is unsigned: right-click the app → Open the first time.
 
 ## Run
 

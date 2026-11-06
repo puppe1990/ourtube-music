@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.gestaobem.ourtube-music",
   "build": {
-    "frontendDist": "../.tauri-dist"
+    "frontendDist": "../.tauri-dist",
+    "beforeBuildCommand": "node scripts/make-tauri-dist.mjs"
   },
   "app": {
     "withGlobalTauri": true,

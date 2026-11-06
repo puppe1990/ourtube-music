@@ -22,8 +22,21 @@ fn tracks_from_contents(contents: Option<&Value>) -> Vec<Track> {
 }
 
 fn push_shelf(shelves: &mut Vec<Shelf>, title: String, tracks: Vec<Track>) {
+    push_shelf_with_layout(shelves, title, tracks, String::new());
+}
+
+fn push_shelf_with_layout(
+    shelves: &mut Vec<Shelf>,
+    title: String,
+    tracks: Vec<Track>,
+    layout: String,
+) {
     if !tracks.is_empty() {
-        shelves.push(Shelf { title, tracks });
+        shelves.push(Shelf {
+            title,
+            tracks,
+            layout,
+        });
     }
 }
 
@@ -51,11 +64,22 @@ fn parse_home_shelves_ordered(payload: &Value, lists_first: bool) -> Result<Vec<
             tracks_from_contents(list.get("contents")),
         );
     }
+    let mut grids = Vec::new();
+    for grid in find_nodes(payload, "gridRenderer") {
+        push_shelf_with_layout(
+            &mut grids,
+            join_runs(field(grid, &["header", "gridHeaderRenderer", "title"])),
+            tracks_from_contents(grid.get("items")),
+            "grid".to_string(),
+        );
+    }
     Ok(if lists_first {
         lists.extend(carousels);
+        lists.extend(grids);
         lists
     } else {
         carousels.extend(lists);
+        carousels.extend(grids);
         carousels
     })
 }
@@ -85,6 +109,10 @@ pub fn parse_home_feed(payload: &Value) -> Result<HomeFeed, String> {
 }
 
 fn parse_browse_header(payload: &Value) -> Option<BrowseHeader> {
+    parse_album_header(payload).or_else(|| parse_artist_header(payload))
+}
+
+fn parse_album_header(payload: &Value) -> Option<BrowseHeader> {
     let node = find_nodes(payload, "musicResponsiveHeaderRenderer")
         .into_iter()
         .next()?;
@@ -95,7 +123,7 @@ fn parse_browse_header(payload: &Value) -> Option<BrowseHeader> {
     let play = find_nodes(node, "musicPlayButtonRenderer")
         .into_iter()
         .next()
-        .and_then(|button| field(button, &["playNavigationEndpoint", "watchEndpoint"]));
+        .and_then(|button| watch_endpoint(Some(button)));
     Some(BrowseHeader {
         title,
         artist: join_runs(node.get("straplineTextOne")),
@@ -111,6 +139,43 @@ fn parse_browse_header(payload: &Value) -> Option<BrowseHeader> {
         )),
         playlist_id: string_field(play, "playlistId"),
         video_id: string_field(play, "videoId"),
+        artist_browse_id: first_browse_id(node.get("straplineTextOne")),
+        page_type: "album".to_string(),
+        ..BrowseHeader::default()
+    })
+}
+
+fn parse_artist_header(payload: &Value) -> Option<BrowseHeader> {
+    let node = find_nodes(payload, "musicImmersiveHeaderRenderer")
+        .into_iter()
+        .next()?;
+    let title = join_runs(node.get("title"));
+    if title.is_empty() {
+        return None;
+    }
+    let play = watch_endpoint(node.get("playButton"));
+    let mix = watch_endpoint(node.get("startRadioButton"));
+    Some(BrowseHeader {
+        title: title.clone(),
+        artist: title,
+        thumbnail: largest_thumbnail(field(
+            node,
+            &["thumbnail", "musicThumbnailRenderer", "thumbnail"],
+        )),
+        playlist_id: string_field(play, "playlistId"),
+        video_id: string_field(play, "videoId"),
+        mix_playlist_id: string_field(mix, "playlistId"),
+        mix_video_id: string_field(mix, "videoId"),
+        subscriber_count: join_runs(field(
+            node,
+            &[
+                "subscriptionButton",
+                "subscribeButtonRenderer",
+                "subscriberCountText",
+            ],
+        )),
+        page_type: "artist".to_string(),
+        ..BrowseHeader::default()
     })
 }
 
@@ -118,10 +183,14 @@ fn enrich_album_tracks(header: Option<&BrowseHeader>, shelves: Vec<Shelf>) -> Ve
     let Some(header) = header else {
         return shelves;
     };
+    if header.page_type == "artist" {
+        return shelves;
+    }
     shelves
         .into_iter()
         .map(|shelf| Shelf {
             title: shelf.title,
+            layout: shelf.layout,
             tracks: shelf
                 .tracks
                 .into_iter()
@@ -145,6 +214,24 @@ fn enrich_album_tracks(header: Option<&BrowseHeader>, shelves: Vec<Shelf>) -> Ve
         .collect()
 }
 
+fn chip_browse<'a>(row: &'a Value) -> Option<&'a Value> {
+    let direct = field(row, &["navigationEndpoint", "browseEndpoint"]);
+    if !string_field(direct, "browseId").is_empty() {
+        return direct;
+    }
+    let commands = field(
+        row,
+        &["navigationEndpoint", "commandExecutorCommand", "commands"],
+    );
+    for command in array_items(commands) {
+        let browse = command.get("browseEndpoint");
+        if !string_field(browse, "browseId").is_empty() {
+            return browse;
+        }
+    }
+    direct
+}
+
 fn parse_chips(payload: &Value) -> Vec<HomeChip> {
     find_nodes(payload, "chipCloudChipRenderer")
         .iter()
@@ -153,7 +240,7 @@ fn parse_chips(payload: &Value) -> Vec<HomeChip> {
             if label.is_empty() {
                 return None;
             }
-            let browse = field(row, &["navigationEndpoint", "browseEndpoint"]);
+            let browse = chip_browse(row);
             Some(HomeChip {
                 label,
                 params: string_field(browse, "params"),
@@ -467,6 +554,53 @@ fn string_field(node: Option<&Value>, key: &str) -> String {
         .to_string()
 }
 
+fn first_browse_id(node: Option<&Value>) -> String {
+    for run in array_items(node.and_then(|value| value.get("runs"))) {
+        let browse_id = string_field(
+            field(run, &["navigationEndpoint", "browseEndpoint"]),
+            "browseId",
+        );
+        if !browse_id.is_empty() {
+            return browse_id;
+        }
+    }
+    String::new()
+}
+
+fn watch_endpoint(node: Option<&Value>) -> Option<&Value> {
+    let node = node?;
+    field(node, &["playNavigationEndpoint", "watchEndpoint"])
+        .or_else(|| {
+            field(
+                node,
+                &["buttonRenderer", "navigationEndpoint", "watchEndpoint"],
+            )
+        })
+        .or_else(|| field(node, &["navigationEndpoint", "watchEndpoint"]))
+}
+
+fn byline_fields(title: &str, texts: &[String]) -> (String, String) {
+    let extras: Vec<&str> = texts
+        .iter()
+        .map(String::as_str)
+        .filter(|text| {
+            !text.is_empty() && !looks_like_duration(text) && !looks_like_play_count(text)
+        })
+        .collect();
+    if extras.first() == Some(&title) && extras.len() >= 3 && !extras[1].contains('•') {
+        return (extras[1].to_string(), extras[2].to_string());
+    }
+    let after_title: Vec<&str> = extras
+        .iter()
+        .copied()
+        .filter(|text| *text != title)
+        .collect();
+    if after_title.len() >= 2 && !after_title[0].contains('•') {
+        return (after_title[0].to_string(), after_title[1].to_string());
+    }
+    split_byline(after_title.first().copied().unwrap_or(""))
+}
+
 fn join_runs(node: Option<&Value>) -> String {
     let Some(node) = node else {
         return String::new();
@@ -525,13 +659,7 @@ fn responsive_track(node: &Value) -> Option<Track> {
     if title.is_empty() {
         return None;
     }
-    let byline = texts.iter().find(|text| {
-        !text.is_empty()
-            && *text != &title
-            && !looks_like_duration(text)
-            && !looks_like_play_count(text)
-    });
-    let (artist, album) = split_byline(byline.map(String::as_str).unwrap_or(""));
+    let (artist, album) = byline_fields(&title, &texts);
     Some(Track {
         video_id,
         playlist_id: overlay_playlist_id(node),

@@ -1,25 +1,35 @@
 import { createMusicApi, resolveInvoker } from '/src/api.mjs'
 import { isFavorite, readFavorites, toggleFavorite } from '/src/favorites.mjs'
 import { formatBitrate, formatDuration, shorten } from '/src/format.mjs'
-import { greeting } from '/src/greeting.mjs'
 import {
   HOME_BROWSE_ID,
-  LIBRARY_BROWSE_ID,
   browseIdFromPath,
   catalogHref,
   feedHeading,
   guideHref,
   isAlbumBrowseId,
+  isArtistBrowseId,
+  isCatalogBrowseId,
+  libraryNeedsLogin,
+  shelfCountLabel,
+  stepAction,
 } from '/src/guide.mjs'
+import { largerCoverUrl, nowPlayingAriaLabel, syncNowPlayingGlyphs } from '/src/nowPlaying.mjs'
 import { playPauseAriaLabel, syncPlayPauseIcons } from '/src/playback.mjs'
-import { nextTrack, upNext } from '/src/queue.mjs'
+import { nextTrack, shouldReplaceQueue, upNext } from '/src/queue.mjs'
 import { accountMenuModel, renderAccountButton, renderAccountMenu } from '/src/accountMenu.mjs'
+import { createLastFmScrobbler, lastFmButtonLabel, lastFmClickAction } from '/src/lastfm.mjs'
 import { accountLabel } from '/src/session.mjs'
 
 const api = createMusicApi(resolveInvoker())
+const lastFm = createLastFmScrobbler({
+  nowPlaying: (payload) => api.lastfmNowPlaying(payload),
+  scrobble: (payload) => api.lastfmScrobble(payload),
+})
 const state = {
   shelves: [],
   chips: [],
+  homeChips: [],
   results: [],
   queue: [],
   current: null,
@@ -29,6 +39,8 @@ const state = {
   homeLoaded: false,
   guide: [],
   album: null,
+  nowPlayingOpen: false,
+  lastfm: { connected: false, username: '', pending: false, hasKeys: false },
 }
 
 const SEARCH_CHIPS = [
@@ -49,6 +61,7 @@ const dom = {
   account: $('#account'),
   accountMenu: $('#account-menu'),
   accountSlot: $('#account-slot'),
+  lastfm: $('#lastfm'),
   theme: $('#theme-toggle'),
   favorites: $('#favorites'),
   recent: $('#recent'),
@@ -69,6 +82,14 @@ const dom = {
   total: $('#total'),
   volume: $('#volume'),
   status: $('#status'),
+  expand: $('#expand-player'),
+  iconExpand: $('#icon-expand'),
+  iconCollapse: $('#icon-collapse'),
+  nowPlaying: $('#now-playing'),
+  nowPlayingArt: $('#now-playing-art'),
+  nowPlayingBackdrop: $('#now-playing-backdrop'),
+  nowPlayingTitle: $('#now-playing-title'),
+  nowPlayingArtist: $('#now-playing-artist'),
   loginDialog: $('#login-dialog'),
 
   loginStatus: $('#login-status'),
@@ -78,6 +99,10 @@ const dom = {
 
 const ICON_PLAY =
   '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5l12 7-12 7z"></path></svg>'
+const ICON_SHUFFLE =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l6.5-6.5M21 8l-6.5 6.5M16 21h5v-5M15 15l6 6M4 4l5 5"></path></svg>'
+const ICON_MIX =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="16" r="1.6" fill="currentColor" stroke="none"></circle><path d="M8.2 13.2a5 5 0 0 1 7.6 0M6 10.6a8 8 0 0 1 12 0"></path></svg>'
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -132,9 +157,10 @@ function quickCard(track) {
 }
 
 function shelfCard(track) {
+  const kind = isArtistBrowseId(track.browseId) ? 'card card-circle' : 'card'
   return catalogTag(
     track,
-    'card',
+    kind,
     `<span class="card-art">
       ${art(track, 'card-img')}
       <span class="card-play" aria-hidden="true">${ICON_PLAY}</span>
@@ -177,6 +203,24 @@ function albumRow(track, index) {
   </li>`
 }
 
+function artistRow(track) {
+  const current = state.current?.videoId === track.videoId
+  return `<li>
+    <button class="track-row artist-row" type="button" ${playAttrs(track)} data-current="${current}">
+      ${art(track, 'artist-row-art')}
+      <span class="track-text"><strong>${escapeHtml(track.title)}</strong></span>
+      <span class="artist-row-cell">${escapeHtml(track.artist)}</span>
+      <span class="artist-row-cell artist-row-plays">${escapeHtml(track.playCount)}</span>
+      <span class="artist-row-cell artist-row-album">${escapeHtml(track.album)}</span>
+    </button>
+  </li>`
+}
+
+function artistAction(label, icon, videoId, playlistId) {
+  if (!videoId) return ''
+  return `<button class="artist-action" type="button" data-video-id="${escapeHtml(videoId)}" data-playlist-id="${escapeHtml(playlistId)}" data-radio="true">${icon}<span>${escapeHtml(label)}</span></button>`
+}
+
 function trackList(tracks, emptyMessage = 'Nenhuma faixa por aqui.') {
   if (!tracks.length) return `<p class="empty">${escapeHtml(emptyMessage)}</p>`
   return `<ul class="track-list">${tracks.map(row).join('')}</ul>`
@@ -217,7 +261,7 @@ function renderHome() {
   if (!state.shelves.length) {
     dom.main.innerHTML = state.homeLoaded
       ? `<div class="empty">A home veio vazia agora. <button type="button" class="link-button" data-retry-home>Tentar de novo</button></div>`
-      : '<p class="empty">Carregando a home do YouTube Music…</p>'
+      : '<p class="empty">Carregando a home…</p>'
     return
   }
   const picks = quickPicks()
@@ -227,7 +271,7 @@ function renderHome() {
         <div class="shelf-head">
           <div>
             <h2 class="section-title">${escapeHtml(shelf.title)}</h2>
-            <p class="shelf-sub">${shelf.tracks.length} faixas</p>
+            <p class="shelf-sub">${escapeHtml(shelfCountLabel(shelf.tracks))}</p>
           </div>
         </div>
         <div class="shelf-rail">${shelf.tracks.map(shelfCard).join('')}</div>
@@ -237,8 +281,7 @@ function renderHome() {
 
   dom.main.innerHTML = `
     <section class="hero">
-      <span class="pulse-dot" aria-hidden="true"></span>
-      <h1>${greeting(new Date().getHours())}</h1>
+      <h1>${escapeHtml(feedHeading(HOME_BROWSE_ID))}</h1>
     </section>
     <section class="quick-grid">${picks.map(quickCard).join('')}</section>
     ${shelves}`
@@ -246,17 +289,15 @@ function renderHome() {
 
 function renderSearch(query, tracks) {
   const visible = tracks.filter((track) => matchesFilter(track))
-  const label = state.filter === 'song' ? 'Músicas' : state.filter === 'video' ? 'Vídeos' : 'Tudo'
   dom.main.innerHTML = `
     <section class="hero">
-      <span class="pulse-dot" aria-hidden="true"></span>
       <h1>Resultados</h1>
     </section>
     <section class="shelf">
       <div class="shelf-head">
         <div>
           <h2 class="section-title">“${escapeHtml(query)}”</h2>
-          <p class="shelf-sub">${visible.length} itens · filtro: ${label}</p>
+          <p class="shelf-sub">${visible.length === 1 ? '1 item' : `${visible.length} itens`}</p>
         </div>
       </div>
       ${trackList(visible, 'Nada encontrado com esse filtro.')}
@@ -277,10 +318,7 @@ function renderWatch(track) {
       <div>
         <h1>${escapeHtml(track.title || 'Tocando agora')}</h1>
         <p>${escapeHtml(byline(track))}</p>
-        <div class="hero-meta">
-          ${track.duration ? `<span class="pill">${escapeHtml(track.duration)}</span>` : ''}
-          <span class="pill pill-red">player · ANDROID</span>
-        </div>
+        ${track.duration ? `<p class="hero-card-meta">${escapeHtml(track.duration)}</p>` : ''}
       </div>
     </section>
     <section class="shelf">
@@ -297,8 +335,7 @@ function renderWatch(track) {
 function renderFavorites() {
   dom.main.innerHTML = `
     <section class="hero">
-      <span class="pulse-dot" aria-hidden="true"></span>
-      <h1>Músicas Curtidas</h1>
+      <h1>Músicas curtidas</h1>
     </section>
     <section class="shelf">
       <div class="shelf-head">
@@ -340,6 +377,24 @@ function refreshPlayPauseIcon() {
   dom.playPause.setAttribute('aria-label', playPauseAriaLabel(playing))
 }
 
+function refreshNowPlayingCover() {
+  const src = largerCoverUrl(state.current?.thumbnail || dom.art.src)
+  dom.nowPlayingArt.src = src
+  dom.nowPlayingBackdrop.src = src
+  dom.nowPlayingTitle.textContent = state.current?.title || dom.title.textContent
+  dom.nowPlayingArtist.textContent = state.current?.artist || dom.artist.textContent
+}
+
+function setNowPlayingOpen(open) {
+  state.nowPlayingOpen = Boolean(open)
+  if (state.nowPlayingOpen) refreshNowPlayingCover()
+  dom.nowPlaying.toggleAttribute('hidden', !state.nowPlayingOpen)
+  dom.nowPlaying.setAttribute('aria-hidden', state.nowPlayingOpen ? 'false' : 'true')
+  syncNowPlayingGlyphs(dom.iconExpand, dom.iconCollapse, state.nowPlayingOpen)
+  dom.expand.setAttribute('aria-label', nowPlayingAriaLabel(state.nowPlayingOpen))
+  dom.expand.setAttribute('aria-expanded', state.nowPlayingOpen ? 'true' : 'false')
+}
+
 function findTrack(videoId) {
   const pools = [state.queue, state.results, state.favorites, ...state.shelves.map((s) => s.tracks)]
   return pools.flat().find((track) => track.videoId === videoId) ?? null
@@ -354,8 +409,8 @@ function refreshNowPlayingView() {
     if (state.current) renderWatch(state.current)
     return
   }
-  if (state.album && isAlbumBrowseId(browseIdFromPath(location.hash))) {
-    renderAlbumPage(state.album.browseId, state.album.feed)
+  if (state.album && isCatalogBrowseId(browseIdFromPath(location.hash))) {
+    renderCatalogPage(state.album.browseId, state.album.feed)
   }
 }
 
@@ -367,6 +422,7 @@ async function play(track, queue) {
   dom.title.textContent = track.title || '—'
   dom.artist.textContent = track.artist || '—'
   dom.art.src = track.thumbnail || ''
+  refreshNowPlayingCover()
   setStatus('resolvendo áudio…')
   refreshHeart()
 
@@ -395,6 +451,7 @@ async function play(track, queue) {
     dom.title.textContent = enriched.title
     dom.artist.textContent = enriched.artist
     dom.art.src = enriched.thumbnail || ''
+    refreshNowPlayingCover()
     dom.meta.textContent = [
       formatBitrate(stream.bitrate),
       stream.mimeType.includes('mp4') ? 'AAC' : 'Opus',
@@ -404,6 +461,8 @@ async function play(track, queue) {
     dom.total.textContent = formatDuration(stream.duration)
     setStatus('')
     refreshHeart()
+    const durationSec = Number(stream.duration) || Number(dom.audio.duration)
+    lastFm.onPlay(enriched, durationSec).catch(() => {})
   } catch (error) {
     setStatus(error.message ?? 'falha ao resolver o áudio', 'error')
   }
@@ -451,6 +510,7 @@ async function loadQueue(videoId, playlistId) {
     const queue = playlistId ? await api.queue(videoId, playlistId) : await api.queue(videoId)
     const hash = location.hash.replace(/^#/, '')
     if (!hash.startsWith(`/watch/${videoId}`) || queue.length === 0) return
+    if (!shouldReplaceQueue(state.queue, queue, { videoId, playlistId })) return
     state.queue = queue
     const row = queue.find((item) => item.videoId === videoId)
     if (!row || state.current?.videoId !== videoId) return
@@ -474,7 +534,13 @@ function step(direction) {
       ? nextTrack(state.queue, state.current.videoId)
       : (state.queue[index - 1] ?? state.queue.at(-1))
   if (!following) return
-  location.hash = `#/watch/${following.videoId}`
+  const playlistId = watchListId() || following.playlistId || ''
+  const action = stepAction(location.hash, following.videoId, playlistId)
+  if (action.type === 'play') {
+    play(following, state.queue)
+    return
+  }
+  location.hash = action.href
 }
 
 /* ── favorites ──────────────────────────────────────────────────────────── */
@@ -524,26 +590,72 @@ function albumPlayTarget(feed) {
   return queue.find((track) => track.videoId === feed?.header?.videoId) ?? queue[0] ?? null
 }
 
+async function fillCatalogQueue(videoId, playlistId) {
+  try {
+    const queue = await api.queue(videoId, playlistId)
+    if (!queue.length || state.current?.videoId !== videoId) return
+    state.queue = queue
+  } catch (_error) {
+    // Shuffle/mix still plays the seed track if next never arrives.
+  }
+}
+
+function playCatalogRadio(header, videoId, playlistId) {
+  play(
+    {
+      videoId,
+      playlistId: playlistId || '',
+      title: header?.title || '',
+      artist: header?.artist || header?.title || '',
+      thumbnail: header?.thumbnail || '',
+    },
+    [],
+  )
+  if (playlistId) fillCatalogQueue(videoId, playlistId)
+}
+
 function browseEmpty(browseId, message) {
-  const login =
-    browseId === LIBRARY_BROWSE_ID
-      ? ' <button type="button" class="link-button" data-open-login>Fazer login</button>'
-      : ''
+  const login = libraryNeedsLogin(browseId, message)
+    ? ' <button type="button" class="link-button" data-open-login>Fazer login</button>'
+    : ''
   return `<p class="empty">${escapeHtml(message || 'Nada por aqui agora.')}${login}</p>`
+}
+
+function shelfTracksClass(shelf) {
+  return shelf.layout === 'grid' ? 'shelf-grid' : 'shelf-rail'
 }
 
 function relatedShelvesHtml(shelves) {
   return (shelves ?? [])
-    .map(
-      (shelf) => `<section class="shelf">
-        <div class="shelf-head">
+    .map((shelf) => {
+      const head = shelf.title
+        ? `<div class="shelf-head">
           <div>
             <h2 class="section-title">${escapeHtml(shelf.title)}</h2>
-            <p class="shelf-sub">${shelf.tracks.length} faixas</p>
+            <p class="shelf-sub">${escapeHtml(shelfCountLabel(shelf.tracks))}</p>
           </div>
-        </div>
-        <div class="shelf-rail">${shelf.tracks.map(shelfCard).join('')}</div>
-      </section>`,
+        </div>`
+        : ''
+      return `<section class="shelf">
+        ${head}
+        <div class="${shelfTracksClass(shelf)}">${shelf.tracks.map(shelfCard).join('')}</div>
+      </section>`
+    })
+    .join('')
+}
+
+function renderBrowseChips(chips) {
+  if (!chips?.length) {
+    dom.chips.innerHTML = ''
+    return
+  }
+  dom.chips.setAttribute('aria-label', 'Filtrar biblioteca')
+  dom.chips.innerHTML = chips
+    .map(
+      (chip) =>
+        `<button class="chip${chip.selected ? ' is-active' : ''}" type="button" data-chip-browse="${escapeHtml(
+          chip.browseId,
+        )}">${escapeHtml(chip.label)}</button>`,
     )
     .join('')
 }
@@ -553,10 +665,19 @@ function renderBrowsePage(browseId, feed) {
   const shelves = relatedShelvesHtml(feed.shelves)
   dom.main.innerHTML = `
     <section class="hero">
-      <span class="pulse-dot" aria-hidden="true"></span>
       <h1>${escapeHtml(title)}</h1>
     </section>
     ${shelves || browseEmpty(browseId, feed.message)}`
+}
+
+function albumArtistLine(header) {
+  const thumb = header.artistThumbnail
+    ? `<img class="album-artist-img" src="${escapeHtml(header.artistThumbnail)}" alt="" />`
+    : ''
+  const name = `<span>${escapeHtml(header.artist)}</span>`
+  const href = catalogHref({ browseId: header.artistBrowseId })
+  if (!href) return `${thumb}${name}`
+  return `<a class="album-artist-link" href="${href}">${thumb}${name}</a>`
 }
 
 function renderAlbumPage(browseId, feed) {
@@ -565,9 +686,6 @@ function renderAlbumPage(browseId, feed) {
   const [tracklist, ...related] = feed.shelves ?? []
   const tracks = tracklist?.tracks ?? []
   const playTrack = albumPlayTarget(feed)
-  const artistThumb = header.artistThumbnail
-    ? `<img class="album-artist-img" src="${escapeHtml(header.artistThumbnail)}" alt="" />`
-    : ''
   const playButton = playTrack
     ? `<button class="album-play" type="button" ${playAttrs(playTrack)} aria-label="Tocar álbum">${ICON_PLAY}</button>`
     : ''
@@ -577,7 +695,7 @@ function renderAlbumPage(browseId, feed) {
   dom.main.innerHTML = `
     <section class="album-spread">
       <div class="album-hero">
-        <p class="album-artist">${artistThumb}<span>${escapeHtml(header.artist)}</span></p>
+        <p class="album-artist">${albumArtistLine(header)}</p>
         ${art({ thumbnail: header.thumbnail }, 'album-cover')}
         <h1>${escapeHtml(header.title)}</h1>
         <p class="album-subtitle">${escapeHtml(header.subtitle)}</p>
@@ -589,17 +707,65 @@ function renderAlbumPage(browseId, feed) {
     ${relatedShelvesHtml(related)}`
 }
 
+function renderArtistPage(browseId, feed) {
+  state.album = { browseId, feed }
+  const header = feed.header
+  const [top, ...related] = feed.shelves ?? []
+  const tracks = top?.tracks ?? []
+  const banner = header.thumbnail
+    ? `<img class="artist-banner" src="${escapeHtml(header.thumbnail)}" alt="" />`
+    : '<div class="artist-banner art-empty"></div>'
+  const subs = header.subscriberCount
+    ? `<span class="artist-subs">Inscrito ${escapeHtml(header.subscriberCount)}</span>`
+    : ''
+  const list = tracks.length
+    ? `<ol class="track-list artist-tracks">${tracks.map(artistRow).join('')}</ol>`
+    : ''
+  const topTitle = top?.title ? `<h2 class="section-title">${escapeHtml(top.title)}</h2>` : ''
+  dom.main.innerHTML = `
+    <section class="artist-page">
+      <header class="artist-hero">
+        ${banner}
+        <div class="artist-hero-copy">
+          <h1>${escapeHtml(header.title)}</h1>
+          <div class="artist-actions">
+            ${artistAction('Aleatório', ICON_SHUFFLE, header.videoId, header.playlistId)}
+            ${artistAction('Mix', ICON_MIX, header.mixVideoId, header.mixPlaylistId)}
+            ${subs}
+          </div>
+        </div>
+      </header>
+      <div class="artist-body">
+        ${topTitle}
+        ${list}
+        ${relatedShelvesHtml(related)}
+      </div>
+    </section>`
+}
+
+function renderCatalogPage(browseId, feed) {
+  if (feed.header?.pageType === 'artist') renderArtistPage(browseId, feed)
+  else renderAlbumPage(browseId, feed)
+}
+
+function browseLabel(browseId) {
+  if (isArtistBrowseId(browseId)) return 'artista'
+  if (isAlbumBrowseId(browseId)) return 'álbum'
+  return feedHeading(browseId)
+}
+
 async function loadBrowse(browseId) {
   renderGuide()
   dom.chips.innerHTML = ''
-  const label = isAlbumBrowseId(browseId) ? 'álbum' : feedHeading(browseId)
+  const label = browseLabel(browseId)
   dom.main.innerHTML = `<p class="empty">Carregando ${escapeHtml(label)}…</p>`
   try {
     const feed = readHomeFeed(await api.browse(browseId))
     if (browseIdFromPath(location.hash) !== browseId) return
-    if (feed.header) renderAlbumPage(browseId, feed)
+    if (feed.header) renderCatalogPage(browseId, feed)
     else {
       state.album = null
+      renderBrowseChips(feed.chips)
       renderBrowsePage(browseId, feed)
     }
   } catch (error) {
@@ -614,6 +780,7 @@ async function loadHome(args = {}) {
     const feed = readHomeFeed(await api.home(args))
     state.shelves = feed.shelves
     state.chips = feed.chips
+    state.homeChips = feed.chips
     state.homeLoaded = true
     if (!isHomeRoute()) return
     renderMoodChips()
@@ -702,6 +869,62 @@ async function refreshAccount() {
   }
 }
 
+function paintLastFm(lastfm) {
+  if (!dom.lastfm) return
+  dom.lastfm.textContent = lastFmButtonLabel(lastfm)
+  dom.lastfm.dataset.connected = lastfm?.connected ? 'true' : 'false'
+  dom.lastfm.setAttribute('aria-pressed', lastfm?.connected ? 'true' : 'false')
+}
+
+async function refreshLastFm() {
+  try {
+    state.lastfm = await api.lastfmState()
+  } catch (_error) {
+    state.lastfm = { connected: false, username: '', pending: false, hasKeys: false }
+  }
+  paintLastFm(state.lastfm)
+}
+
+function pollLastFm() {
+  clearInterval(state.lastfmTimer)
+  let ticks = 0
+  state.lastfmTimer = setInterval(async () => {
+    ticks += 1
+    if (ticks > 60) {
+      clearInterval(state.lastfmTimer)
+      return
+    }
+    try {
+      const result = await api.lastfmComplete()
+      state.lastfm = result
+      paintLastFm(result)
+      if (result.connected) clearInterval(state.lastfmTimer)
+    } catch (_error) {
+      // Last.fm error 14 (token not approved yet) keeps the poll alive.
+    }
+  }, 2000)
+}
+
+async function onLastFmClick() {
+  const action = lastFmClickAction(state.lastfm)
+  try {
+    if (action === 'logout') {
+      state.lastfm = await api.lastfmLogout()
+    } else if (action === 'complete') {
+      state.lastfm = await api.lastfmComplete()
+      if (!state.lastfm.connected) {
+        setStatus('Autorize o OurTube Music no Last.fm e clique de novo', 'info')
+      }
+    } else {
+      state.lastfm = await api.lastfmLogin()
+      pollLastFm()
+    }
+    paintLastFm(state.lastfm)
+  } catch (error) {
+    setStatus(error.message ?? 'falha no Last.fm', 'error')
+  }
+}
+
 async function openLogin() {
   dom.loginStatus.textContent = 'Abrindo a janela do Google…'
   dom.loginDialog.showModal()
@@ -774,12 +997,15 @@ function route() {
     return
   }
   dom.input.value = ''
+  state.chips = state.homeChips
   if (state.chips.length) renderMoodChips()
+  else dom.chips.innerHTML = ''
   if (path === '/favorites') {
     renderFavorites()
     return
   }
   renderHome()
+  if (!state.homeLoaded) loadHome()
 }
 
 /* ── events ─────────────────────────────────────────────────────────────── */
@@ -816,6 +1042,11 @@ function wireEvents() {
   })
 
   dom.chips.addEventListener('click', (event) => {
+    const libraryChip = event.target.closest('[data-chip-browse]')
+    if (libraryChip?.dataset.chipBrowse) {
+      location.hash = guideHref(libraryChip.dataset.chipBrowse)
+      return
+    }
     const mood = event.target.closest('[data-chip-params]')
     if (mood) {
       for (const item of dom.chips.querySelectorAll('.chip'))
@@ -851,13 +1082,17 @@ function wireEvents() {
     const row = event.target.closest('[data-browse-id], [data-video-id], [data-playlist-id]')
     if (!row) return
     const browseId = row.dataset.browseId
-    if (isAlbumBrowseId(browseId)) {
+    if (isCatalogBrowseId(browseId)) {
       if (row.tagName !== 'A') location.hash = catalogHref({ browseId })
       return
     }
     const videoId = row.dataset.videoId
     const playlistId = row.dataset.playlistId
-    if (isAlbumBrowseId(browseIdFromPath(location.hash)) && videoId) {
+    if (isCatalogBrowseId(browseIdFromPath(location.hash)) && videoId) {
+      if (row.hasAttribute('data-radio')) {
+        playCatalogRadio(state.album?.feed?.header, videoId, playlistId)
+        return
+      }
       const queue = albumQueue(state.album?.feed)
       const track = queue.find((item) => item.videoId === videoId)
       if (track) {
@@ -918,6 +1153,13 @@ function wireEvents() {
     const ratio = dom.audio.duration ? dom.audio.currentTime / dom.audio.duration : 0
     dom.progress.value = String(Math.round(ratio * 1000))
     dom.elapsed.textContent = formatDuration(dom.audio.currentTime)
+    if (!state.current) return
+    lastFm
+      .onProgress(state.current, {
+        durationSec: dom.audio.duration,
+        playedSec: dom.audio.currentTime,
+      })
+      .catch(() => {})
   })
   dom.progress.addEventListener('input', () => {
     if (!dom.audio.duration) return
@@ -934,6 +1176,9 @@ function wireEvents() {
 
   dom.loginDialog.addEventListener('close', () => clearInterval(state.loginTimer))
 
+  dom.lastfm?.addEventListener('click', () => {
+    onLastFmClick()
+  })
   dom.account.addEventListener('click', () => {
     if (state.account?.loggedIn) {
       if (dom.accountMenu.hidden) openAccountMenu()
@@ -958,7 +1203,14 @@ function wireEvents() {
     if (!dom.accountSlot.contains(event.target)) closeAccountMenu()
   })
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') closeAccountMenu()
+    if (event.key !== 'Escape') return
+    closeAccountMenu()
+    if (state.nowPlayingOpen) setNowPlayingOpen(false)
+  })
+
+  dom.expand.addEventListener('click', () => {
+    if (!state.current) return
+    setNowPlayingOpen(!state.nowPlayingOpen)
   })
   // Closing the dialog keeps the poll alive: Google can take a couple of
   // minutes and the token must still land when the user approves.
@@ -1018,6 +1270,7 @@ async function boot() {
     .then(renderGuide)
     .catch(() => renderGuide([{ label: 'Home', browseId: 'FEmusic_home' }]))
   await refreshAccount()
+  await refreshLastFm()
 
   if (isHomeRoute() && !state.shelves.length) await loadHome()
 }

@@ -3,10 +3,10 @@ import { accountLabel } from './session.mjs'
 const MANAGE_URL = 'https://myaccount.google.com/'
 
 const SWITCH_ICON =
-  '<span class="account-menu-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="9" cy="8" r="3"/><path d="M4 19c0-2.8 2.2-5 5-5"/><path d="M16 14l4 3-4 3"/><path d="M20 17h-6"/></svg></span>'
+  '<span class="account-menu-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="8" r="3"/><path d="M4 19c0-2.8 2.2-5 5-5"/><path d="M16 14l4 3-4 3"/><path d="M20 17h-6"/></svg></span>'
 
 const LOGOUT_ICON =
-  '<span class="account-menu-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10 7V5a2 2 0 0 1 2-2h7v18h-7a2 2 0 0 1-2-2v-2"/><path d="M4 12h11"/><path d="M12 8l4 4-4 4"/></svg></span>'
+  '<span class="account-menu-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 7V5a2 2 0 0 1 2-2h7v18h-7a2 2 0 0 1-2-2v-2"/><path d="M4 12h11"/><path d="M12 8l4 4-4 4"/></svg></span>'
 
 export function accountMenuModel(state) {
   if (!state?.loggedIn) return null

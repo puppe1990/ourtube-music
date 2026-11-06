@@ -21,6 +21,9 @@ npm run install:app      # gera e copia o .app para /Applications
 Gate completo: `npm run ci && npm run rust:test`.
 
 Pre-commit: lint-staged + `npm test`. CI: `.github/workflows/ci.yml` (Node + Rust).
+Release: tag `v*` dispara `.github/workflows/release.yml` (macOS / Windows / Linux).
+Chaves Last.fm e sessão Google ficam em `<app_config_dir>/` (`lastfm.json`,
+`credentials.json`) modo `0600` — nunca no git.
 
 ## Endpoints mapeados (fonte: captura decifrada)
 
@@ -78,11 +81,15 @@ ANDROID_VR agora responde `LOGIN_REQUIRED`. Não troque isso sem testar o
 
 ## Design (Obsidian Pulse)
 
-Veio do pacote Stitch (`stitch_red_spotify_music_player.zip`). `web/style.css` é a fonte única
-dos tokens: fundo `#030303`, superfícies `#0f0f0f`/`#181818`/`#212121`, borda `#2a2a2a`,
-acento `#ff0000` (hover `#ff4e45`, press `#cc0000`), texto `#fff`/`#aaa`/`#717171`,
-Plus Jakarta Sans. Layout: rail 256px + canvas + dock fixo de 80px (três módulos: faixa,
-controles/scrubber, volume). Não invente hex novo: use as variáveis CSS.
+Veio do pacote Stitch (`stitch_red_spotify_music_player.zip`) e passou pelo unslop
+(2026-11-06). `web/style.css` é a fonte única dos tokens: fundo `#030303`, superfícies
+`#0f0f0f`/`#181818`/`#212121`, hairline `rgba(237,237,237,0.08)`, texto `#ededed` /
+`#a1a1a6` / `#85858b`. Plus Jakarta Sans self-hosted em `web/fonts/` (400/500).
+Carmesim `#ff0000` nos acentos pequenos: wordmark `Music`, marca, ícone da rail atual,
+coração das curtidas, borda da conta, discos de play (capa/quick/álbum/dock) e faixa
+tocando. Sem ponto pulando no Início. Capas carregam o resto da cor. Layout: rail 256px + canvas + dock 80px
+(três módulos: faixa, controles/scrubber, volume). Home title `Início`. Não invente hex
+novo: use as variáveis CSS.
 
 ## Convenções
 

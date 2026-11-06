@@ -290,6 +290,69 @@ fn library_feed_keeps_the_signed_out_message() {
 }
 
 #[test]
+fn signed_in_library_landing_keeps_grid_cards_and_chip_browse_ids() {
+    let liked: String = Sentence(1..3).fake();
+    let artist: String = Name().fake();
+    let album: String = Sentence(1..3).fake();
+    let playlist_id: String = Sentence(1..2).fake::<String>().replace(' ', "");
+    let artist_id = format!("UC{}", "a".repeat(22));
+    let album_id = format!("MPREb_{}", "b".repeat(12));
+    let payload = json!({
+        "contents": { "singleColumnBrowseResultsRenderer": { "tabs": [ { "tabRenderer": {
+            "content": { "sectionListRenderer": {
+                "header": { "musicSideAlignedItemRenderer": { "startItems": [ { "chipCloudRenderer": {
+                    "chips": [ { "chipCloudChipRenderer": {
+                        "text": runs(&["Playlists"]),
+                        "navigationEndpoint": { "commandExecutorCommand": { "commands": [
+                            { "browseEndpoint": { "browseId": "FEmusic_liked_playlists" } }
+                        ] } }
+                    } } ]
+                } } ] } },
+                "contents": [ { "gridRenderer": { "items": [
+                    { "musicTwoRowItemRenderer": {
+                        "title": runs(&[&liked]),
+                        "subtitle": runs(&["Playlist automática"]),
+                        "thumbnailRenderer": { "musicThumbnailRenderer": { "thumbnail": thumbnails(&["https://img/lib"]) } },
+                        "navigationEndpoint": { "browseEndpoint": { "browseId": format!("VL{playlist_id}") } },
+                        "thumbnailOverlay": { "musicItemThumbnailOverlayRenderer": { "content": {
+                            "musicPlayButtonRenderer": { "playNavigationEndpoint": {
+                                "watchPlaylistEndpoint": { "playlistId": playlist_id.clone() }
+                            } }
+                        } } }
+                    } },
+                    { "musicTwoRowItemRenderer": {
+                        "title": runs(&[&artist]),
+                        "subtitle": runs(&["Artista"]),
+                        "thumbnailRenderer": { "musicThumbnailRenderer": { "thumbnail": thumbnails(&["https://img/lib"]) } },
+                        "navigationEndpoint": { "browseEndpoint": { "browseId": artist_id.clone() } }
+                    } },
+                    { "musicTwoRowItemRenderer": {
+                        "title": runs(&[&album]),
+                        "subtitle": runs(&["Álbum • 2026"]),
+                        "thumbnailRenderer": { "musicThumbnailRenderer": { "thumbnail": thumbnails(&["https://img/lib"]) } },
+                        "navigationEndpoint": { "browseEndpoint": { "browseId": album_id.clone() } }
+                    } }
+                ] } } ]
+            } }
+        } } ] } }
+    });
+
+    let feed = parse_home_feed(&payload).expect("parse signed-in library");
+
+    assert_eq!(feed.message, "");
+    assert_eq!(feed.chips.len(), 1);
+    assert_eq!(feed.chips[0].label, "Playlists");
+    assert_eq!(feed.chips[0].browse_id, "FEmusic_liked_playlists");
+    assert_eq!(feed.shelves.len(), 1);
+    assert_eq!(feed.shelves[0].layout, "grid");
+    assert_eq!(feed.shelves[0].tracks.len(), 3);
+    assert_eq!(feed.shelves[0].tracks[0].title, liked);
+    assert_eq!(feed.shelves[0].tracks[0].playlist_id, playlist_id);
+    assert_eq!(feed.shelves[0].tracks[1].browse_id, artist_id);
+    assert_eq!(feed.shelves[0].tracks[2].browse_id, album_id);
+}
+
+#[test]
 fn library_shelves_keep_music_shelf_rows() {
     let shelf_title: String = Sentence(1..3).fake();
     let title: String = Sentence(1..3).fake();
@@ -703,4 +766,160 @@ fn album_browse_feed_reads_the_header_then_the_tracklist() {
     assert_eq!(feed.shelves[0].tracks[0].artist, artist);
     assert_eq!(feed.shelves[0].tracks[0].album, album);
     assert_eq!(feed.shelves[1].title, related);
+}
+
+fn artist_strapline(name: &str, browse_id: &str) -> Value {
+    json!({
+        "runs": [{
+            "text": name,
+            "navigationEndpoint": {
+                "browseEndpoint": {
+                    "browseId": browse_id,
+                    "browseEndpointContextSupportedConfigs": {
+                        "browseEndpointContextMusicConfig": { "pageType": "MUSIC_PAGE_TYPE_ARTIST" }
+                    }
+                }
+            }
+        }]
+    })
+}
+
+#[test]
+fn album_header_reads_the_artist_channel_browse_id() {
+    let album: String = Sentence(1..3).fake();
+    let artist: String = Name().fake();
+    let artist_id = format!("UC{}", Name().fake::<String>());
+    let playlist_id: String = format!("OLAK5uy_{}", Name().fake::<String>());
+    let video_id: String = Name().fake();
+
+    let payload = json!({
+        "contents": {
+            "musicResponsiveHeaderRenderer": {
+                "thumbnail": { "musicThumbnailRenderer": { "thumbnail": thumbnails(&["https://img/cover"]) } },
+                "title": runs(&[&album]),
+                "subtitle": runs(&["Álbum"]),
+                "straplineTextOne": artist_strapline(&artist, &artist_id),
+                "buttons": [{ "musicPlayButtonRenderer": { "playNavigationEndpoint": {
+                    "watchEndpoint": { "videoId": video_id, "playlistId": playlist_id }
+                } } }]
+            }
+        }
+    });
+
+    let header = parse_home_feed(&payload)
+        .expect("parse album")
+        .header
+        .expect("header");
+    assert_eq!(header.artist, artist);
+    assert_eq!(header.artist_browse_id, artist_id);
+    assert_eq!(header.page_type, "album");
+}
+
+#[test]
+fn artist_browse_feed_reads_the_immersive_header_and_top_songs() {
+    let artist: String = Name().fake();
+    let banner = "https://img/banner";
+    let subscribers: String = Sentence(1..2).fake();
+    let shuffle_id: String = Name().fake();
+    let shuffle_list = format!("RDAO{}", Name().fake::<String>());
+    let mix_id: String = Name().fake();
+    let mix_list = format!("RDEM{}", Name().fake::<String>());
+    let song: String = Sentence(1..3).fake();
+    let album: String = Sentence(1..3).fake();
+    let video_id: String = Name().fake();
+    let playlist_id = format!("OLAK5uy_{}", Name().fake::<String>());
+    let play_count = "Tocou 327 mil vezes";
+    let albums_title = "Álbuns";
+
+    let payload = json!({
+        "header": {
+            "musicImmersiveHeaderRenderer": {
+                "title": runs(&[&artist]),
+                "thumbnail": { "musicThumbnailRenderer": { "thumbnail": thumbnails(&["https://img/small", banner]) } },
+                "playButton": { "buttonRenderer": { "navigationEndpoint": {
+                    "watchEndpoint": { "videoId": shuffle_id, "playlistId": shuffle_list }
+                } } },
+                "startRadioButton": { "buttonRenderer": { "navigationEndpoint": {
+                    "watchEndpoint": { "videoId": mix_id, "playlistId": mix_list }
+                } } },
+                "subscriptionButton": { "subscribeButtonRenderer": {
+                    "subscriberCountText": runs(&[&subscribers])
+                } }
+            }
+        },
+        "contents": {
+            "sectionListRenderer": {
+                "contents": [
+                    { "musicShelfRenderer": {
+                        "title": runs(&["Top músicas"]),
+                        "contents": [{ "musicResponsiveListItemRenderer": {
+                            "flexColumns": [
+                                { "musicResponsiveListItemFlexColumnRenderer": { "text": runs(&[&song]) } },
+                                { "musicResponsiveListItemFlexColumnRenderer": { "text": runs(&[&artist]) } },
+                                { "musicResponsiveListItemFlexColumnRenderer": { "text": runs(&[play_count]) } },
+                                { "musicResponsiveListItemFlexColumnRenderer": { "text": runs(&[&album]) } }
+                            ],
+                            "playlistItemData": { "videoId": video_id },
+                            "overlay": play_overlay_watch(&video_id, &playlist_id)
+                        } }]
+                    } },
+                    { "musicCarouselShelfRenderer": {
+                        "header": { "musicCarouselShelfBasicHeaderRenderer": { "title": runs(&[albums_title]) } },
+                        "contents": [{ "musicTwoRowItemRenderer": {
+                            "title": runs(&["Related"]),
+                            "subtitle": runs(&["Álbum"]),
+                            "thumbnailRenderer": { "musicThumbnailRenderer": { "thumbnail": thumbnails(&["https://img/alb"]) } },
+                            "navigationEndpoint": { "browseEndpoint": { "browseId": "MPREb_related" } }
+                        } }]
+                    } }
+                ]
+            }
+        }
+    });
+
+    let feed = parse_home_feed(&payload).expect("parse artist page");
+    let header = feed.header.expect("artist header");
+    assert_eq!(header.page_type, "artist");
+    assert_eq!(header.title, artist);
+    assert_eq!(header.thumbnail, banner);
+    assert_eq!(header.playlist_id, shuffle_list);
+    assert_eq!(header.video_id, shuffle_id);
+    assert_eq!(header.mix_playlist_id, mix_list);
+    assert_eq!(header.mix_video_id, mix_id);
+    assert_eq!(header.subscriber_count, subscribers);
+    assert_eq!(feed.shelves[0].title, "Top músicas");
+    assert_eq!(feed.shelves[0].tracks[0].title, song);
+    assert_eq!(feed.shelves[0].tracks[0].artist, artist);
+    assert_eq!(feed.shelves[0].tracks[0].album, album);
+    assert_eq!(feed.shelves[0].tracks[0].play_count, play_count);
+    assert_eq!(feed.shelves[1].title, albums_title);
+}
+
+#[test]
+fn top_song_keeps_the_album_column_when_it_repeats_the_title() {
+    let artist: String = Name().fake();
+    let song: String = Sentence(1..3).fake();
+    let video_id: String = Name().fake();
+    let play_count = "Tocou 268 mil vezes";
+
+    let payload = json!({
+        "contents": { "musicShelfRenderer": {
+            "title": runs(&["Top músicas"]),
+            "contents": [{ "musicResponsiveListItemRenderer": {
+                "flexColumns": [
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": runs(&[&song]) } },
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": runs(&[&artist]) } },
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": runs(&[play_count]) } },
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": runs(&[&song]) } }
+                ],
+                "playlistItemData": { "videoId": video_id }
+            } }]
+        } }
+    });
+
+    let track = &parse_home_feed(&payload).expect("parse top song").shelves[0].tracks[0];
+    assert_eq!(track.title, song);
+    assert_eq!(track.artist, artist);
+    assert_eq!(track.album, song);
+    assert_eq!(track.play_count, play_count);
 }

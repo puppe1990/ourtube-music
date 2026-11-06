@@ -13,6 +13,12 @@ export const COMMANDS = {
   authRefresh: 'auth_refresh',
   authState: 'auth_state',
   authLogout: 'auth_logout',
+  lastfmState: 'lastfm_state',
+  lastfmLogin: 'lastfm_login',
+  lastfmComplete: 'lastfm_complete',
+  lastfmLogout: 'lastfm_logout',
+  lastfmNowPlaying: 'lastfm_now_playing',
+  lastfmScrobble: 'lastfm_scrobble',
 }
 
 export function createMusicApi(invoke) {
@@ -33,6 +39,12 @@ export function createMusicApi(invoke) {
     authRefresh: () => invoke(COMMANDS.authRefresh),
     authState: () => invoke(COMMANDS.authState),
     authLogout: () => invoke(COMMANDS.authLogout),
+    lastfmState: () => invoke(COMMANDS.lastfmState),
+    lastfmLogin: () => invoke(COMMANDS.lastfmLogin),
+    lastfmComplete: () => invoke(COMMANDS.lastfmComplete),
+    lastfmLogout: () => invoke(COMMANDS.lastfmLogout),
+    lastfmNowPlaying: (payload) => invoke(COMMANDS.lastfmNowPlaying, payload),
+    lastfmScrobble: (payload) => invoke(COMMANDS.lastfmScrobble, payload),
   }
 }
 
@@ -52,7 +64,11 @@ function proxyInvoker(scope) {
       body: JSON.stringify(args),
     })
     if (!response.ok) {
-      throw new Error(`dev proxy ${command} returned HTTP ${response.status}`)
+      const detail = await response.text()
+      const plain = response.headers.get('content-type')?.includes('text/plain')
+      throw new Error(
+        plain && detail ? detail : `dev proxy ${command} returned HTTP ${response.status}`,
+      )
     }
     return response.json()
   }

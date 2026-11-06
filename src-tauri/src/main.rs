@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tauri::Manager;
 
 use ourtube_music::audio_proxy;
+use ourtube_music::lastfm::LastFmSession;
 use ourtube_music::session::AuthSession;
 
 fn main() {
@@ -12,9 +13,11 @@ fn main() {
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
             println!("auth dir: {}", dir.display());
-            let session = Arc::new(AuthSession::load(dir));
+            let session = Arc::new(AuthSession::load(dir.clone()));
+            let lastfm = Arc::new(LastFmSession::load(dir));
             let proxy = audio_proxy::start(Arc::clone(&session))?;
             app.manage(session);
+            app.manage(lastfm);
             app.manage(proxy);
             Ok(())
         })
@@ -32,7 +35,13 @@ fn main() {
             ourtube_music::commands::auth_check,
             ourtube_music::commands::auth_refresh,
             ourtube_music::commands::auth_state,
-            ourtube_music::commands::auth_logout
+            ourtube_music::commands::auth_logout,
+            ourtube_music::lastfm::lastfm_state,
+            ourtube_music::lastfm::lastfm_login,
+            ourtube_music::lastfm::lastfm_complete,
+            ourtube_music::lastfm::lastfm_logout,
+            ourtube_music::lastfm::lastfm_now_playing,
+            ourtube_music::lastfm::lastfm_scrobble
         ])
         .run(tauri::generate_context!())
         .expect("falha ao abrir a janela do OurTube Music");

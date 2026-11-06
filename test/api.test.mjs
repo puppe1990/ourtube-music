@@ -27,6 +27,12 @@ test('every mapped endpoint has a command', () => {
     'browse',
     'guide',
     'home',
+    'lastfmComplete',
+    'lastfmLogin',
+    'lastfmLogout',
+    'lastfmNowPlaying',
+    'lastfmScrobble',
+    'lastfmState',
     'queue',
     'search',
     'stream',
@@ -113,6 +119,34 @@ test('home, guide and account need no arguments', async () => {
     calls.map((call) => call.command),
     ['music_home', 'music_guide', 'music_account'],
   )
+})
+
+test('last.fm commands send the scrobble payload', async () => {
+  const artist = faker.person.fullName()
+  const track = faker.music.songName()
+  const { calls, invoke } = recordingInvoke()
+  const api = createMusicApi(invoke)
+
+  await api.lastfmState()
+  await api.lastfmLogin()
+  await api.lastfmComplete()
+  await api.lastfmNowPlaying({ artist, track, duration: 180 })
+  await api.lastfmScrobble({ artist, track, duration: 180, timestamp: 1_700_000_000 })
+  await api.lastfmLogout()
+
+  assert.deepEqual(
+    calls.map((call) => call.command),
+    [
+      'lastfm_state',
+      'lastfm_login',
+      'lastfm_complete',
+      'lastfm_now_playing',
+      'lastfm_scrobble',
+      'lastfm_logout',
+    ],
+  )
+  assert.deepEqual(calls[3].args, { artist, track, duration: 180 })
+  assert.equal(calls[4].args.timestamp, 1_700_000_000)
 })
 
 test('resolveInvoker prefers the Tauri global', () => {

@@ -2,7 +2,7 @@ import { faker } from '@faker-js/faker'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { nextTrack, upNext } from '../src/queue.mjs'
+import { nextTrack, shouldReplaceQueue, upNext } from '../src/queue.mjs'
 
 faker.seed(7)
 
@@ -57,5 +57,42 @@ test('upNext lists the tracks after the current one, without duplicates', () => 
   assert.deepEqual(
     queued.map((item) => item.videoId),
     [second.videoId, third.videoId],
+  )
+})
+
+test('shouldReplaceQueue keeps an album queue when next has no playlist', () => {
+  const current = track()
+  const rest = [track(), track()]
+  const incoming = [current]
+
+  assert.equal(
+    shouldReplaceQueue([current, ...rest], incoming, { videoId: current.videoId, playlistId: '' }),
+    false,
+  )
+})
+
+test('shouldReplaceQueue takes Innertube next when the hash has a playlist', () => {
+  const current = track()
+  const incoming = [current, track(), track()]
+  const playlistId = `OLAK5uy_${faker.string.alphanumeric(12)}`
+
+  assert.equal(
+    shouldReplaceQueue([current], incoming, { videoId: current.videoId, playlistId }),
+    true,
+  )
+})
+
+test('shouldReplaceQueue fills an empty or single-track queue from next', () => {
+  const current = track()
+  const incoming = [current, track()]
+
+  assert.equal(shouldReplaceQueue([], incoming, { videoId: current.videoId, playlistId: '' }), true)
+  assert.equal(
+    shouldReplaceQueue([current], incoming, { videoId: current.videoId, playlistId: '' }),
+    true,
+  )
+  assert.equal(
+    shouldReplaceQueue([current], [], { videoId: current.videoId, playlistId: '' }),
+    false,
   )
 })

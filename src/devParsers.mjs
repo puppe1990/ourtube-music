@@ -95,6 +95,37 @@ function looksLikePlayCount(text) {
   return /tocou/i.test(String(text ?? ''))
 }
 
+function bylineFields(title, texts) {
+  const extras = texts.filter(
+    (text) => text && !looksLikeDuration(text) && !looksLikePlayCount(text),
+  )
+  if (extras[0] === title && extras.length >= 3 && !extras[1].includes('•')) {
+    return { artist: extras[1], album: extras[2] }
+  }
+  const afterTitle = extras.filter((text) => text !== title)
+  if (afterTitle.length >= 2 && !afterTitle[0].includes('•')) {
+    return { artist: afterTitle[0], album: afterTitle[1] }
+  }
+  return splitByline(afterTitle[0] ?? '')
+}
+
+function firstBrowseId(node) {
+  for (const run of node?.runs ?? []) {
+    const browseId = run?.navigationEndpoint?.browseEndpoint?.browseId ?? ''
+    if (browseId) return browseId
+  }
+  return ''
+}
+
+function watchEndpoint(node) {
+  return (
+    field(node, 'playNavigationEndpoint', 'watchEndpoint') ??
+    field(node, 'buttonRenderer', 'navigationEndpoint', 'watchEndpoint') ??
+    field(node, 'navigationEndpoint', 'watchEndpoint') ??
+    {}
+  )
+}
+
 function columnText(column, rendererKey) {
   return joinRuns(field(column, rendererKey, 'text'))
 }
@@ -128,10 +159,7 @@ function responsiveTrack(node) {
       columnText(column, 'musicResponsiveListItemFixedColumnRenderer'),
     ),
   ]
-  const byline = texts.find(
-    (text) => text && text !== title && !looksLikeDuration(text) && !looksLikePlayCount(text),
-  )
-  const { artist, album } = splitByline(byline ?? '')
+  const { artist, album } = bylineFields(title, texts)
 
   return {
     ...emptyTrack(),
@@ -205,25 +233,55 @@ function parseListShelves(payload) {
   }))
 }
 
+function parseGridShelves(payload) {
+  return findNodes(payload, 'gridRenderer').map((grid) => ({
+    title: joinRuns(field(grid, 'header', 'gridHeaderRenderer', 'title')),
+    tracks: tracksFromContents(grid.items),
+    layout: 'grid',
+  }))
+}
+
 export function parseHomeShelves(payload, options = {}) {
   const carousels = parseCarouselShelves(payload)
   const lists = parseListShelves(payload)
-  const ordered = options.listsFirst ? [...lists, ...carousels] : [...carousels, ...lists]
+  const grids = parseGridShelves(payload)
+  const ordered = options.listsFirst
+    ? [...lists, ...carousels, ...grids]
+    : [...carousels, ...lists, ...grids]
   return ordered.filter((shelf) => shelf.tracks.length > 0)
 }
 
 function headerPlayEndpoint(node) {
   const [button] = findNodes(node, 'musicPlayButtonRenderer')
-  return field(button, 'playNavigationEndpoint', 'watchEndpoint') ?? {}
+  return watchEndpoint(button)
 }
 
-function parseBrowseHeader(payload) {
+function emptyHeader() {
+  return {
+    title: '',
+    artist: '',
+    subtitle: '',
+    secondSubtitle: '',
+    thumbnail: '',
+    artistThumbnail: '',
+    playlistId: '',
+    videoId: '',
+    artistBrowseId: '',
+    pageType: '',
+    mixPlaylistId: '',
+    mixVideoId: '',
+    subscriberCount: '',
+  }
+}
+
+function parseAlbumHeader(payload) {
   const [node] = findNodes(payload, 'musicResponsiveHeaderRenderer')
   if (!node) return null
   const title = joinRuns(node.title)
   if (!title) return null
   const play = headerPlayEndpoint(node)
   return {
+    ...emptyHeader(),
     title,
     artist: joinRuns(node.straplineTextOne),
     subtitle: joinRuns(node.subtitle),
@@ -234,11 +292,40 @@ function parseBrowseHeader(payload) {
     ),
     playlistId: play.playlistId ?? '',
     videoId: play.videoId ?? '',
+    artistBrowseId: firstBrowseId(node.straplineTextOne),
+    pageType: 'album',
   }
 }
 
+function parseArtistHeader(payload) {
+  const [node] = findNodes(payload, 'musicImmersiveHeaderRenderer')
+  if (!node) return null
+  const title = joinRuns(node.title)
+  if (!title) return null
+  const play = watchEndpoint(node.playButton)
+  const mix = watchEndpoint(node.startRadioButton)
+  return {
+    ...emptyHeader(),
+    title,
+    artist: title,
+    thumbnail: largestThumbnail(field(node, 'thumbnail', 'musicThumbnailRenderer', 'thumbnail')),
+    playlistId: play.playlistId ?? '',
+    videoId: play.videoId ?? '',
+    mixPlaylistId: mix.playlistId ?? '',
+    mixVideoId: mix.videoId ?? '',
+    subscriberCount: joinRuns(
+      field(node, 'subscriptionButton', 'subscribeButtonRenderer', 'subscriberCountText'),
+    ),
+    pageType: 'artist',
+  }
+}
+
+function parseBrowseHeader(payload) {
+  return parseAlbumHeader(payload) ?? parseArtistHeader(payload)
+}
+
 function enrichAlbumTracks(header, shelves) {
-  if (!header) return shelves
+  if (!header || header.pageType === 'artist') return shelves
   return shelves.map((shelf) => ({
     ...shelf,
     tracks: shelf.tracks.map((track) => ({
@@ -251,14 +338,28 @@ function enrichAlbumTracks(header, shelves) {
   }))
 }
 
+function chipBrowse(row) {
+  const direct = field(row, 'navigationEndpoint', 'browseEndpoint')
+  if (direct?.browseId) return direct
+  const commands = field(row, 'navigationEndpoint', 'commandExecutorCommand', 'commands')
+  if (!Array.isArray(commands)) return direct ?? {}
+  for (const command of commands) {
+    if (command?.browseEndpoint?.browseId) return command.browseEndpoint
+  }
+  return direct ?? {}
+}
+
 export function parseHomeFeed(payload) {
   const chips = findNodes(payload, 'chipCloudChipRenderer')
-    .map((row) => ({
-      label: joinRuns(row.text),
-      params: field(row, 'navigationEndpoint', 'browseEndpoint', 'params') ?? '',
-      browseId: field(row, 'navigationEndpoint', 'browseEndpoint', 'browseId') ?? '',
-      selected: Boolean(row.isSelected),
-    }))
+    .map((row) => {
+      const browse = chipBrowse(row)
+      return {
+        label: joinRuns(row.text),
+        params: browse.params ?? '',
+        browseId: browse.browseId ?? '',
+        selected: Boolean(row.isSelected),
+      }
+    })
     .filter((chip) => chip.label)
   const continuation = findNodes(payload, 'nextContinuationData')[0]?.continuation ?? ''
   const header = parseBrowseHeader(payload)
