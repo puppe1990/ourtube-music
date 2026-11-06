@@ -9,12 +9,6 @@
       content="Leitor desktop dos endpoints internos do YouTube Music (Innertube)."
     />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
-      rel="stylesheet"
-    />
     <link rel="stylesheet" href="/style.css" />
     <script>
       try {
@@ -28,9 +22,8 @@
       <aside class="rail">
         <a class="brand" href="#/" aria-label="OurTube Music">
           <span class="brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
-              <circle cx="12" cy="12" r="9"></circle>
-              <path d="M10 8.5l6 3.5-6 3.5z" fill="currentColor" stroke="none"></path>
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M9 6.8v10.4L18.2 12z"></path>
             </svg>
           </span>
           <span class="brand-name">OurTube <b>Music</b></span>
@@ -47,7 +40,7 @@
                 ></path>
               </svg>
             </span>
-            Músicas Curtidas
+            Músicas curtidas
           </button>
         </div>
 
@@ -55,6 +48,16 @@
           <span class="rail-label">Buscas recentes</span>
           <ul id="recent" class="rail-list"></ul>
         </div>
+
+        <button
+          id="lastfm"
+          class="lastfm"
+          type="button"
+          data-connected="false"
+          aria-pressed="false"
+        >
+          Conectar Last.fm
+        </button>
 
         <div class="account-slot" id="account-slot">
           <div id="account-menu" class="account-menu" hidden role="menu"></div>
@@ -79,7 +82,7 @@
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              stroke-width="1.9"
+              stroke-width="1.5"
               aria-hidden="true"
             >
               <circle cx="11" cy="11" r="6.5"></circle>
@@ -89,7 +92,7 @@
               id="search-input"
               name="q"
               type="search"
-              placeholder="Pesquise músicas, álbuns, artistas e podcasts"
+              placeholder="Buscar"
               aria-label="Buscar no YouTube Music"
             />
             <ul id="suggestions" class="suggestions" hidden></ul>
@@ -103,7 +106,7 @@
 
           <div class="topbar-actions">
             <button id="theme-toggle" class="icon-button" type="button" aria-label="Alternar tema">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <circle cx="12" cy="12" r="3.6"></circle>
                 <path
                   d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
@@ -131,7 +134,7 @@
             aria-label="Curtir faixa"
             aria-pressed="false"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path
                 d="M12 20s-7-4.35-8.8-8.5A4.9 4.9 0 0 1 12 6.7a4.9 4.9 0 0 1 8.8 4.8C19 15.65 12 20 12 20z"
               ></path>
@@ -182,7 +185,7 @@
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            stroke-width="1.7"
+            stroke-width="1.5"
             aria-hidden="true"
           >
             <path d="M4 9v6h3l5 4V5L7 9H4z"></path>
@@ -197,10 +200,42 @@
             value="80"
             aria-label="Volume"
           />
+          <button
+            id="expand-player"
+            class="expand-player"
+            type="button"
+            aria-label="Expandir player"
+            aria-expanded="false"
+            aria-controls="now-playing"
+          >
+            <svg id="icon-expand" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 7.2 18.8 17H5.2z"></path>
+            </svg>
+            <svg
+              id="icon-collapse"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              hidden
+              aria-hidden="true"
+            >
+              <path d="M12 16.8 5.2 7h13.6z"></path>
+            </svg>
+          </button>
         </div>
 
         <audio id="audio" preload="none"></audio>
       </footer>
+
+      <section id="now-playing" class="now-playing" hidden aria-hidden="true">
+        <img id="now-playing-backdrop" class="now-playing-backdrop" alt="" />
+        <div class="now-playing-stage">
+          <img id="now-playing-art" class="now-playing-art" alt="" />
+          <div class="now-playing-copy">
+            <strong id="now-playing-title"></strong>
+            <span id="now-playing-artist"></span>
+          </div>
+        </div>
+      </section>
     </div>
 
     <dialog id="login-dialog" class="dialog">

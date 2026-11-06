@@ -1,7 +1,9 @@
+import { execFile } from 'node:child_process'
 import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { createServer } from 'node:http'
 import { extname, join, normalize, resolve } from 'node:path'
+import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 
 import { bindYoutubeSession, sessionIsYoutubeBound } from '../src/authCookies.mjs'
@@ -12,8 +14,12 @@ import {
   innertubeSessionHeaders,
   upstreamRequest,
 } from '../src/devUpstream.mjs'
+import { createLastFmNode } from '../src/lastfmNode.mjs'
+import { lastFmAuthUrlAllowed } from '../src/lastfmSign.mjs'
 import { playbackSource } from '../src/playback.mjs'
 import { mergeAccount } from '../src/session.mjs'
+
+const execFileAsync = promisify(execFile)
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const PORT = Number(process.env.PORT ?? 8794)
@@ -27,6 +33,7 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
 }
 
 // `/src/*` lives outside web/ so the same module works in the Tauri build,
@@ -61,6 +68,10 @@ async function proxyCommand(command, request, response) {
     return
   }
   try {
+    if (command.startsWith('lastfm_')) {
+      await proxyLastFm(command, args, response)
+      return
+    }
     if (command === 'auth_state') {
       const creds = (await credentialsForInnertube()) ?? loadCredentials()
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
@@ -184,8 +195,42 @@ function parseRange(header, total) {
   return end <= start ? null : { start, end }
 }
 
+function appConfigDir() {
+  return join(homedir(), 'Library/Application Support/com.gestaobem.ourtube-music')
+}
+
 function credentialsPath() {
-  return join(homedir(), 'Library/Application Support/com.gestaobem.ourtube-music/credentials.json')
+  return join(appConfigDir(), 'credentials.json')
+}
+
+const lastfm = createLastFmNode({
+  dir: appConfigDir(),
+  openUrl: async (url) => {
+    if (!lastFmAuthUrlAllowed(url)) throw new Error(`last.fm auth url rejected: ${url}`)
+    await execFileAsync('open', [url])
+  },
+})
+
+async function proxyLastFm(command, args, response) {
+  try {
+    let payload
+    if (command === 'lastfm_state') payload = lastfm.state()
+    else if (command === 'lastfm_login') payload = await lastfm.login()
+    else if (command === 'lastfm_complete') payload = await lastfm.complete()
+    else if (command === 'lastfm_logout') payload = await lastfm.logout()
+    else if (command === 'lastfm_now_playing') payload = await lastfm.updateNowPlaying(args)
+    else if (command === 'lastfm_scrobble') payload = await lastfm.scrobble(args)
+    else {
+      response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+      response.end(`unknown last.fm command: ${command}`)
+      return
+    }
+    response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+    response.end(JSON.stringify(payload))
+  } catch (error) {
+    response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' })
+    response.end(error.message)
+  }
 }
 
 function loadCredentials() {

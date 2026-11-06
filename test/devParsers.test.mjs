@@ -236,6 +236,114 @@ test('library landing keeps the signed-out message', () => {
   assert.equal(feed.message, message)
 })
 
+test('signed-in library landing keeps gridRenderer cards and chip browse ids', () => {
+  const liked = faker.music.songName()
+  const artist = faker.music.artist()
+  const album = faker.music.album()
+  const playlistId = faker.string.alphanumeric(8)
+  const artistId = `UC${faker.string.alphanumeric(22)}`
+  const albumId = `MPREb_${faker.string.alphanumeric(12)}`
+
+  const twoRow = (title, subtitle, endpoint, extra = {}) => ({
+    musicTwoRowItemRenderer: {
+      title: runs(title),
+      subtitle: runs(subtitle),
+      thumbnailRenderer: {
+        musicThumbnailRenderer: { thumbnail: thumbs('https://img/lib') },
+      },
+      navigationEndpoint: endpoint,
+      ...extra,
+    },
+  })
+
+  const feed = parseHomeFeed({
+    contents: {
+      singleColumnBrowseResultsRenderer: {
+        tabs: [
+          {
+            tabRenderer: {
+              content: {
+                sectionListRenderer: {
+                  header: {
+                    musicSideAlignedItemRenderer: {
+                      startItems: [
+                        {
+                          chipCloudRenderer: {
+                            chips: [
+                              {
+                                chipCloudChipRenderer: {
+                                  text: runs('Playlists'),
+                                  navigationEndpoint: {
+                                    commandExecutorCommand: {
+                                      commands: [
+                                        { browseEndpoint: { browseId: 'FEmusic_liked_playlists' } },
+                                      ],
+                                    },
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                        },
+                      ],
+                    },
+                  },
+                  contents: [
+                    {
+                      gridRenderer: {
+                        items: [
+                          twoRow(
+                            liked,
+                            'Playlist automática',
+                            {
+                              browseEndpoint: { browseId: `VL${playlistId}` },
+                            },
+                            {
+                              thumbnailOverlay: {
+                                musicItemThumbnailOverlayRenderer: {
+                                  content: {
+                                    musicPlayButtonRenderer: {
+                                      playNavigationEndpoint: {
+                                        watchPlaylistEndpoint: { playlistId },
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          ),
+                          twoRow(artist, 'Artista', {
+                            browseEndpoint: { browseId: artistId },
+                          }),
+                          twoRow(album, 'Álbum • 2026', {
+                            browseEndpoint: { browseId: albumId },
+                          }),
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        ],
+      },
+    },
+  })
+
+  assert.equal(feed.message, '')
+  assert.equal(feed.chips.length, 1)
+  assert.equal(feed.chips[0].label, 'Playlists')
+  assert.equal(feed.chips[0].browseId, 'FEmusic_liked_playlists')
+  assert.equal(feed.shelves.length, 1)
+  assert.equal(feed.shelves[0].layout, 'grid')
+  assert.equal(feed.shelves[0].tracks.length, 3)
+  assert.equal(feed.shelves[0].tracks[0].title, liked)
+  assert.equal(feed.shelves[0].tracks[0].playlistId, playlistId)
+  assert.equal(feed.shelves[0].tracks[1].browseId, artistId)
+  assert.equal(feed.shelves[0].tracks[2].browseId, albumId)
+})
+
 test('library shelves keep musicShelfRenderer rows', () => {
   const shelfTitle = faker.music.genre()
   const title = faker.music.songName()
@@ -811,4 +919,204 @@ test('album browse feed reads the header, numbered tracks, then related carousel
   assert.equal(feed.shelves[0].tracks[0].thumbnail, cover)
   assert.equal(feed.shelves[1].title, relatedTitle)
   assert.equal(feed.header != null, true)
+})
+
+function artistStrapline(name, browseId) {
+  return {
+    runs: [
+      {
+        text: name,
+        navigationEndpoint: {
+          browseEndpoint: {
+            browseId,
+            browseEndpointContextSupportedConfigs: {
+              browseEndpointContextMusicConfig: { pageType: 'MUSIC_PAGE_TYPE_ARTIST' },
+            },
+          },
+        },
+      },
+    ],
+  }
+}
+
+test('album header keeps the artist channel browse id from the strapline', () => {
+  const album = faker.music.album()
+  const artist = faker.music.artist()
+  const artistId = `UC${faker.string.alphanumeric(22)}`
+  const playlistId = `OLAK5uy_${faker.string.alphanumeric(8)}`
+  const videoId = faker.string.alphanumeric(11)
+
+  const feed = parseHomeFeed({
+    contents: {
+      musicResponsiveHeaderRenderer: {
+        thumbnail: { musicThumbnailRenderer: { thumbnail: thumbs('https://img/cover') } },
+        title: runs(album),
+        subtitle: runs('Álbum'),
+        straplineTextOne: artistStrapline(artist, artistId),
+        buttons: [
+          {
+            musicPlayButtonRenderer: {
+              playNavigationEndpoint: { watchEndpoint: { videoId, playlistId } },
+            },
+          },
+        ],
+      },
+    },
+  })
+
+  assert.equal(feed.header.title, album)
+  assert.equal(feed.header.artist, artist)
+  assert.equal(feed.header.artistBrowseId, artistId)
+  assert.equal(feed.header.pageType, 'album')
+})
+
+test('artist browse feed reads the immersive banner, shuffle/mix and top songs', () => {
+  const artist = faker.music.artist()
+  const banner = faker.image.url()
+  const subscribers = `${faker.number.int({ min: 10, max: 90 })},${faker.number.int({ min: 1, max: 9 })} mil`
+  const shuffleId = faker.string.alphanumeric(11)
+  const shuffleList = `RDAO${faker.string.alphanumeric(12)}`
+  const mixId = faker.string.alphanumeric(11)
+  const mixList = `RDEM${faker.string.alphanumeric(12)}`
+  const song = faker.music.songName()
+  const album = faker.music.album()
+  const videoId = faker.string.alphanumeric(11)
+  const playlistId = `OLAK5uy_${faker.string.alphanumeric(8)}`
+  const playCount = `Tocou ${faker.number.int({ min: 100, max: 900 })} mil vezes`
+  const albumsTitle = 'Álbuns'
+  const relatedAlbum = faker.music.album()
+
+  const feed = parseHomeFeed({
+    header: {
+      musicImmersiveHeaderRenderer: {
+        title: runs(artist),
+        thumbnail: {
+          musicThumbnailRenderer: { thumbnail: thumbs('https://img/banner-small', banner) },
+        },
+        playButton: {
+          buttonRenderer: {
+            text: runs('Aleatório'),
+            navigationEndpoint: { watchEndpoint: { videoId: shuffleId, playlistId: shuffleList } },
+          },
+        },
+        startRadioButton: {
+          buttonRenderer: {
+            text: runs('Mix'),
+            navigationEndpoint: { watchEndpoint: { videoId: mixId, playlistId: mixList } },
+          },
+        },
+        subscriptionButton: {
+          subscribeButtonRenderer: { subscriberCountText: runs(subscribers) },
+        },
+      },
+    },
+    contents: {
+      sectionListRenderer: {
+        contents: [
+          {
+            musicShelfRenderer: {
+              title: runs('Top músicas'),
+              contents: [
+                {
+                  musicResponsiveListItemRenderer: {
+                    flexColumns: [
+                      { musicResponsiveListItemFlexColumnRenderer: { text: runs(song) } },
+                      { musicResponsiveListItemFlexColumnRenderer: { text: runs(artist) } },
+                      { musicResponsiveListItemFlexColumnRenderer: { text: runs(playCount) } },
+                      { musicResponsiveListItemFlexColumnRenderer: { text: runs(album) } },
+                    ],
+                    playlistItemData: { videoId },
+                    overlay: {
+                      musicItemThumbnailOverlayRenderer: {
+                        content: {
+                          musicPlayButtonRenderer: {
+                            playNavigationEndpoint: {
+                              watchEndpoint: { videoId, playlistId },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    thumbnail: {
+                      musicThumbnailRenderer: { thumbnail: thumbs('https://img/track') },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+          {
+            musicCarouselShelfRenderer: {
+              header: {
+                musicCarouselShelfBasicHeaderRenderer: { title: runs(albumsTitle) },
+              },
+              contents: [
+                {
+                  musicTwoRowItemRenderer: {
+                    title: runs(relatedAlbum),
+                    subtitle: runs('Álbum'),
+                    thumbnailRenderer: {
+                      musicThumbnailRenderer: { thumbnail: thumbs('https://img/alb') },
+                    },
+                    navigationEndpoint: {
+                      browseEndpoint: { browseId: `MPREb_${faker.string.alphanumeric(8)}` },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  })
+
+  assert.equal(feed.header.pageType, 'artist')
+  assert.equal(feed.header.title, artist)
+  assert.equal(feed.header.thumbnail, banner)
+  assert.equal(feed.header.playlistId, shuffleList)
+  assert.equal(feed.header.videoId, shuffleId)
+  assert.equal(feed.header.mixPlaylistId, mixList)
+  assert.equal(feed.header.mixVideoId, mixId)
+  assert.equal(feed.header.subscriberCount, subscribers)
+  assert.equal(feed.shelves[0].title, 'Top músicas')
+  assert.equal(feed.shelves[0].tracks[0].title, song)
+  assert.equal(feed.shelves[0].tracks[0].artist, artist)
+  assert.equal(feed.shelves[0].tracks[0].album, album)
+  assert.equal(feed.shelves[0].tracks[0].playCount, playCount)
+  assert.equal(feed.shelves[0].tracks[0].playlistId, playlistId)
+  assert.equal(feed.shelves[1].title, albumsTitle)
+})
+
+test('top song keeps the album column when it repeats the title', () => {
+  const artist = faker.music.artist()
+  const song = faker.music.songName()
+  const videoId = faker.string.alphanumeric(11)
+  const playCount = `Tocou ${faker.number.int({ min: 100, max: 900 })} mil vezes`
+
+  const feed = parseHomeFeed({
+    contents: {
+      musicShelfRenderer: {
+        title: runs('Top músicas'),
+        contents: [
+          {
+            musicResponsiveListItemRenderer: {
+              flexColumns: [
+                { musicResponsiveListItemFlexColumnRenderer: { text: runs(song) } },
+                { musicResponsiveListItemFlexColumnRenderer: { text: runs(artist) } },
+                { musicResponsiveListItemFlexColumnRenderer: { text: runs(playCount) } },
+                { musicResponsiveListItemFlexColumnRenderer: { text: runs(song) } },
+              ],
+              playlistItemData: { videoId },
+            },
+          },
+        ],
+      },
+    },
+  })
+
+  assert.equal(feed.shelves[0].tracks[0].title, song)
+  assert.equal(feed.shelves[0].tracks[0].artist, artist)
+  assert.equal(feed.shelves[0].tracks[0].album, song)
+  assert.equal(feed.shelves[0].tracks[0].playCount, playCount)
 })

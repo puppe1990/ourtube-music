@@ -17,3 +17,11 @@ export function upNext(tracks, currentVideoId) {
   }
   return queued
 }
+
+export function shouldReplaceQueue(currentQueue, incoming, { videoId, playlistId } = {}) {
+  if (!Array.isArray(incoming) || incoming.length === 0) return false
+  if (playlistId) return true
+  const current = Array.isArray(currentQueue) ? currentQueue : []
+  if (current.length > 1 && current.some((track) => track.videoId === videoId)) return false
+  return true
+}

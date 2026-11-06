@@ -40,6 +40,16 @@ pub struct BrowseHeader {
     pub playlist_id: String,
     #[serde(default)]
     pub video_id: String,
+    #[serde(default)]
+    pub artist_browse_id: String,
+    #[serde(default)]
+    pub page_type: String,
+    #[serde(default)]
+    pub mix_playlist_id: String,
+    #[serde(default)]
+    pub mix_video_id: String,
+    #[serde(default)]
+    pub subscriber_count: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +70,8 @@ pub struct HomeFeed {
 pub struct Shelf {
     pub title: String,
     pub tracks: Vec<Track>,
+    #[serde(default)]
+    pub layout: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
