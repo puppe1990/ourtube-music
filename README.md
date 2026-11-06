@@ -1,5 +1,7 @@
 # OurTube Music
 
+![OurTube Music — home autenticada](docs/home.jpg)
+
 Leitor desktop (Tauri 2) do acervo público do YouTube Music, falando direto com os
 endpoints internos (Innertube) que o site usa. O mapa veio de uma captura de rede
 decifrada com `SSLKEYLOGFILE` em 05/11/2026.
