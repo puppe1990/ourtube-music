@@ -25,7 +25,7 @@ export const COMMANDS = {
 export function createMusicApi(invoke) {
   return {
     home: (args = {}) => invoke(COMMANDS.home, args),
-    search: (query) => invoke(COMMANDS.search, { query }),
+    search: (query, params) => invoke(COMMANDS.search, params ? { query, params } : { query }),
     queue: (videoId, playlistId) =>
       invoke(COMMANDS.queue, playlistId ? { videoId, playlistId } : { videoId }),
     stream: (videoId) => invoke(COMMANDS.stream, { videoId }),

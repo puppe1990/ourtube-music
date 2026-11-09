@@ -2,16 +2,389 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::innertube::models::{
-    Account, BrowseHeader, GuideEntry, HomeChip, HomeFeed, Lyrics, Shelf, Stream, Track,
+    Account, BrowseHeader, GuideEntry, HomeChip, HomeFeed, Lyrics, SearchFeed, SearchTop, Shelf,
+    Stream, Track,
 };
 
 pub fn parse_search_results(payload: &Value) -> Result<Vec<Track>, String> {
-    let rows = find_nodes(payload, "musicResponsiveListItemRenderer");
-    let tracks = rows
+    Ok(parse_search_feed(payload)?.items)
+}
+
+pub fn parse_search_feed(payload: &Value) -> Result<SearchFeed, String> {
+    let selected = selected_search_tab(payload);
+    Ok(SearchFeed {
+        tabs: parse_search_tabs(payload),
+        chips: parse_search_chips(selected),
+        top: find_nodes(selected, "musicCardShelfRenderer")
+            .into_iter()
+            .next()
+            .and_then(parse_search_top),
+        items: find_nodes(selected, "musicResponsiveListItemRenderer")
+            .into_iter()
+            .filter_map(search_item)
+            .collect(),
+    })
+}
+
+fn selected_search_tab(payload: &Value) -> &Value {
+    let tabs = search_tab_renderers(payload);
+    tabs.iter()
+        .copied()
+        .find(|tab| tab.get("selected").and_then(Value::as_bool) == Some(true))
+        .or_else(|| tabs.first().copied())
+        .unwrap_or(payload)
+}
+
+fn search_tab_renderers(payload: &Value) -> Vec<&Value> {
+    let root = find_nodes(payload, "tabbedSearchResultsRenderer")
+        .into_iter()
+        .next();
+    array_items(root.and_then(|node| node.get("tabs")))
         .iter()
-        .filter_map(|row| responsive_track(row))
+        .filter_map(|item| item.get("tabRenderer"))
+        .collect()
+}
+
+fn parse_search_tabs(payload: &Value) -> Vec<HomeChip> {
+    search_tab_renderers(payload)
+        .into_iter()
+        .filter_map(|tab| {
+            let label = tab
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            if label.is_empty() {
+                return None;
+            }
+            let endpoint = tab
+                .get("endpoint")
+                .or_else(|| tab.get("navigationEndpoint"));
+            Some(HomeChip {
+                label,
+                params: decode_params(&string_field(
+                    endpoint.and_then(|node| field(node, &["searchEndpoint"])),
+                    "params",
+                )),
+                browse_id: String::new(),
+                selected: tab
+                    .get("selected")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            })
+        })
+        .collect()
+}
+
+fn parse_search_chips(tab: &Value) -> Vec<HomeChip> {
+    find_nodes(tab, "chipCloudChipRenderer")
+        .into_iter()
+        .filter_map(|row| {
+            let label = join_runs(row.get("text"));
+            if label.is_empty() {
+                return None;
+            }
+            Some(HomeChip {
+                label,
+                params: decode_params(&string_field(
+                    field(row, &["navigationEndpoint", "searchEndpoint"]),
+                    "params",
+                )),
+                browse_id: String::new(),
+                selected: row
+                    .get("isSelected")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            })
+        })
+        .collect()
+}
+
+fn parse_search_top(node: &Value) -> Option<SearchTop> {
+    let title = join_runs(node.get("title"));
+    if title.is_empty() {
+        return None;
+    }
+    let subtitle = join_runs(node.get("subtitle"));
+    let browse = node
+        .get("onTap")
+        .and_then(|node| field(node, &["browseEndpoint"]));
+    let (video_id, playlist_id, shuffle_playlist_id) = search_top_play(node);
+    Some(SearchTop {
+        title,
+        subtitle: subtitle.clone(),
+        thumbnail: largest_thumbnail(field(
+            node,
+            &["thumbnail", "musicThumbnailRenderer", "thumbnail"],
+        )),
+        browse_id: string_field(browse, "browseId"),
+        video_id,
+        playlist_id,
+        shuffle_playlist_id,
+        result_type: result_type_from(&browse_page_type(browse), "", &subtitle),
+    })
+}
+
+fn search_top_play(node: &Value) -> (String, String, String) {
+    let mut video_id = String::new();
+    let mut playlist_id = String::new();
+    let mut shuffle_playlist_id = String::new();
+    for button in array_items(node.get("buttons")) {
+        let renderer = button.get("buttonRenderer").unwrap_or(button);
+        let Some(endpoint) = renderer
+            .get("command")
+            .or_else(|| renderer.get("navigationEndpoint"))
+        else {
+            continue;
+        };
+        let icon = string_field(field(renderer, &["icon"]), "iconType");
+        let list_id = string_field(
+            field(endpoint, &["watchPlaylistEndpoint"])
+                .or_else(|| field(endpoint, &["watchEndpoint"])),
+            "playlistId",
+        );
+        let watch_id = string_field(field(endpoint, &["watchEndpoint"]), "videoId");
+        if icon == "MUSIC_SHUFFLE" {
+            shuffle_playlist_id = list_id;
+            if video_id.is_empty() {
+                video_id = watch_id;
+            }
+        } else {
+            if !list_id.is_empty() {
+                playlist_id = list_id;
+            }
+            if !watch_id.is_empty() {
+                video_id = watch_id;
+            }
+        }
+    }
+    if playlist_id.is_empty() {
+        playlist_id = string_field(
+            play_navigation(node).and_then(|endpoint| endpoint.get("watchPlaylistEndpoint")),
+            "playlistId",
+        );
+    }
+    if shuffle_playlist_id.is_empty() {
+        shuffle_playlist_id = playlist_id.clone();
+    }
+    (video_id, playlist_id, shuffle_playlist_id)
+}
+
+fn search_item(node: &Value) -> Option<Track> {
+    let mut video_id = string_field(node.get("playlistItemData"), "videoId");
+    if video_id.is_empty() {
+        video_id = overlay_video_id(node);
+    }
+    let playlist_id = overlay_playlist_id(node);
+    let browse_id = catalog_browse_id(node);
+    if video_id.is_empty() && playlist_id.is_empty() && browse_id.is_empty() {
+        return None;
+    }
+    let texts = responsive_column_texts(node);
+    let title = texts.first().cloned().unwrap_or_default();
+    if title.is_empty() {
+        return None;
+    }
+    let subtitle = texts
+        .iter()
+        .skip(1)
+        .filter(|text| !text.is_empty())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" • ");
+    let page_type = browse_page_type(field(node, &["navigationEndpoint", "browseEndpoint"]));
+    let video_type = watch_video_type(play_navigation(node));
+    let result_type = result_type_from(&page_type, &video_type, &subtitle);
+    let named = result_type == "artist" || result_type == "profile";
+    let (artist, album) = if named {
+        (String::new(), String::new())
+    } else {
+        search_byline(&title, &texts)
+    };
+    Some(Track {
+        video_id,
+        playlist_id,
+        browse_id,
+        title,
+        artist,
+        album,
+        duration: texts
+            .iter()
+            .find(|text| looks_like_duration(text))
+            .cloned()
+            .unwrap_or_default(),
+        thumbnail: largest_thumbnail(field(
+            node,
+            &["thumbnail", "musicThumbnailRenderer", "thumbnail"],
+        )),
+        play_count: texts
+            .iter()
+            .find(|text| looks_like_play_count(text))
+            .cloned()
+            .unwrap_or_default(),
+        subtitle,
+        result_type,
+    })
+}
+
+fn search_byline(title: &str, texts: &[String]) -> (String, String) {
+    let extras: Vec<&str> = texts
+        .iter()
+        .map(String::as_str)
+        .filter(|text| {
+            !text.is_empty()
+                && *text != title
+                && !looks_like_duration(text)
+                && !looks_like_play_count(text)
+        })
         .collect();
-    Ok(tracks)
+    search_split_byline(extras.first().copied().unwrap_or(""))
+}
+
+fn search_split_byline(byline: &str) -> (String, String) {
+    let parts: Vec<&str> = byline
+        .split('•')
+        .map(str::trim)
+        .filter(|part| {
+            !part.is_empty() && !looks_like_play_count(part) && !looks_like_duration(part)
+        })
+        .collect();
+    if parts.is_empty() {
+        return (String::new(), String::new());
+    }
+    if is_catalog_type(parts[0]) {
+        return (
+            parts.get(1).unwrap_or(&"").to_string(),
+            parts[0].to_string(),
+        );
+    }
+    if is_type_label(parts[0]) {
+        return (
+            parts.get(1).unwrap_or(&"").to_string(),
+            parts.get(2).unwrap_or(&"").to_string(),
+        );
+    }
+    (
+        parts[0].to_string(),
+        parts.get(1).unwrap_or(&"").to_string(),
+    )
+}
+
+fn is_type_label(text: &str) -> bool {
+    matches!(
+        text.trim().to_lowercase().as_str(),
+        "música"
+            | "musica"
+            | "song"
+            | "vídeo"
+            | "video"
+            | "artista"
+            | "artist"
+            | "episódio"
+            | "episodio"
+            | "episode"
+            | "perfil"
+            | "profile"
+            | "podcast"
+    )
+}
+
+fn result_type_from(page_type: &str, video_type: &str, subtitle: &str) -> String {
+    match page_type {
+        "MUSIC_PAGE_TYPE_ALBUM" => return "album".into(),
+        "MUSIC_PAGE_TYPE_ARTIST" => return "artist".into(),
+        "MUSIC_PAGE_TYPE_USER_CHANNEL" | "MUSIC_PAGE_TYPE_NON_MUSIC_AUDIO_CHANNEL" => {
+            return "profile".into()
+        }
+        "MUSIC_PAGE_TYPE_PLAYLIST" => return "playlist".into(),
+        "MUSIC_PAGE_TYPE_PODCAST_SHOW" => return "podcast".into(),
+        _ => {}
+    }
+    match video_type {
+        "MUSIC_VIDEO_TYPE_ATV" => return "song".into(),
+        "MUSIC_VIDEO_TYPE_OMV" | "MUSIC_VIDEO_TYPE_UGC" => return "video".into(),
+        "MUSIC_VIDEO_TYPE_PODCAST_EPISODE" => return "episode".into(),
+        _ => {}
+    }
+    let label = subtitle
+        .split('•')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase();
+    match label.as_str() {
+        "álbum" | "album" | "ep" | "single" => "album",
+        "música" | "musica" | "song" => "song",
+        "artista" | "artist" => "artist",
+        "vídeo" | "video" => "video",
+        "episódio" | "episodio" | "episode" => "episode",
+        "playlist" => "playlist",
+        "perfil" | "profile" => "profile",
+        "podcast" => "podcast",
+        _ => "",
+    }
+    .into()
+}
+
+fn browse_page_type(browse: Option<&Value>) -> String {
+    let Some(browse) = browse else {
+        return String::new();
+    };
+    string_field(
+        field(
+            browse,
+            &[
+                "browseEndpointContextSupportedConfigs",
+                "browseEndpointContextMusicConfig",
+            ],
+        ),
+        "pageType",
+    )
+}
+
+fn watch_video_type(play: Option<&Value>) -> String {
+    let Some(play) = play else {
+        return String::new();
+    };
+    string_field(
+        field(
+            play,
+            &[
+                "watchEndpoint",
+                "watchEndpointMusicSupportedConfigs",
+                "watchEndpointMusicConfig",
+            ],
+        ),
+        "musicVideoType",
+    )
+}
+
+fn decode_params(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(high), Some(low)) = (from_hex(bytes[i + 1]), from_hex(bytes[i + 2])) {
+                out.push((high << 4) | low);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8(out).unwrap_or_else(|_| value.to_string())
+}
+
+fn from_hex(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn tracks_from_contents(contents: Option<&Value>) -> Vec<Track> {
@@ -266,9 +639,9 @@ pub fn parse_lyrics_browse_id(payload: &Value) -> String {
         if tab.get("unselectable").and_then(Value::as_bool) == Some(true) {
             continue;
         }
-        let Some(endpoint) = field(tab, &["endpoint", "browseEndpoint"]).or_else(|| {
-            field(tab, &["navigationEndpoint", "browseEndpoint"])
-        }) else {
+        let Some(endpoint) = field(tab, &["endpoint", "browseEndpoint"])
+            .or_else(|| field(tab, &["navigationEndpoint", "browseEndpoint"]))
+        else {
             continue;
         };
         let browse_id = string_field(Some(endpoint), "browseId");
@@ -745,6 +1118,7 @@ fn responsive_track(node: &Value) -> Option<Track> {
             .find(|text| looks_like_play_count(text))
             .cloned()
             .unwrap_or_default(),
+        ..Track::default()
     })
 }
 
@@ -786,6 +1160,7 @@ fn two_row_track(node: &Value) -> Option<Track> {
             &["thumbnailRenderer", "musicThumbnailRenderer", "thumbnail"],
         )),
         play_count: String::new(),
+        ..Track::default()
     })
 }
 

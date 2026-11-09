@@ -71,6 +71,14 @@ test('small crimson marks sit on the liked glyph, play discs and account', () =>
   assert.match(cssRule(".account[data-logged-in='true']"), /border-color:\s*var\(--red\)/)
 })
 
+test('search page has YT Music tabs, a raised top card and circular artist rows', () => {
+  assert.match(cssRule('.search-tabs'), /border-bottom:\s*1px solid var\(--line\)/)
+  assert.match(cssRule(".search-tab[aria-current='true']"), /border-bottom-color:\s*var\(--text\)/)
+  assert.match(cssRule('.search-top'), /background:\s*var\(--surface-2\)/)
+  assert.match(cssRule('.search-play'), /background:\s*var\(--text\)/)
+  assert.match(cssRule('.search-row-art.is-circle'), /border-radius:\s*50%/)
+})
+
 test('last.fm rail button uses the crimson connected mark', () => {
   const button = cssRule('.lastfm')
 

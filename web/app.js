@@ -41,6 +41,8 @@ import {
   lastFmCredit,
 } from '/src/lastfm.mjs'
 import { accountLabel } from '/src/session.mjs'
+import { searchHref, searchPlayableTracks, searchStateFromHash } from '/src/searchFeed.mjs'
+import { renderSearchPage } from '/src/searchView.mjs'
 
 const api = createMusicApi(resolveInvoker())
 const lastFm = createLastFmScrobbler({
@@ -52,11 +54,11 @@ const state = {
   chips: [],
   homeChips: [],
   results: [],
+  search: null,
   queue: [],
   current: null,
   recent: [],
   favorites: [],
-  filter: '',
   homeLoaded: false,
   guide: [],
   album: null,
@@ -69,19 +71,21 @@ const state = {
   shuffle: false,
 }
 
-const SEARCH_CHIPS = [
-  { label: 'Tudo', filter: '' },
-  { label: 'Músicas', filter: 'song' },
-  { label: 'Vídeos', filter: 'video' },
-]
-
 const $ = (selector) => document.querySelector(selector)
+
+let suggestTimer
+
+function hideSuggestions() {
+  clearTimeout(suggestTimer)
+  if (dom.suggestions) dom.suggestions.hidden = true
+}
 
 const dom = {
   main: $('#main'),
   guide: $('#guide'),
   form: $('#search'),
   input: $('#search-input'),
+  searchClear: $('#search-clear'),
   suggestions: $('#suggestions'),
   chips: $('#chips'),
   account: $('#account'),
@@ -282,16 +286,6 @@ function renderMoodChips() {
     .join('')
 }
 
-function renderSearchChips() {
-  dom.chips.setAttribute('aria-label', 'Filtrar resultados')
-  dom.chips.innerHTML = SEARCH_CHIPS.map(
-    (chip) =>
-      `<button class="chip${state.filter === chip.filter ? ' is-active' : ''}" type="button" data-filter="${escapeHtml(
-        chip.filter,
-      )}">${escapeHtml(chip.label)}</button>`,
-  ).join('')
-}
-
 function renderHome() {
   if (!state.shelves.length) {
     dom.main.innerHTML = state.homeLoaded
@@ -322,27 +316,36 @@ function renderHome() {
     ${shelves}`
 }
 
-function renderSearch(query, tracks) {
-  const visible = tracks.filter((track) => matchesFilter(track))
-  dom.main.innerHTML = `
-    <section class="hero">
-      <h1>Resultados</h1>
-    </section>
-    <section class="shelf">
-      <div class="shelf-head">
-        <div>
-          <h2 class="section-title">“${escapeHtml(query)}”</h2>
-          <p class="shelf-sub">${visible.length === 1 ? '1 item' : `${visible.length} itens`}</p>
-        </div>
-      </div>
-      ${trackList(visible, 'Nada encontrado com esse filtro.')}
-    </section>`
+function renderSearch(query, feed) {
+  dom.main.innerHTML = renderSearchPage(
+    feed ?? state.search ?? { tabs: [], chips: [], top: null, items: [] },
+    query,
+  )
 }
 
-function matchesFilter(track) {
-  if (!state.filter) return true
-  const kind = /video/i.test(track.artist) && !/song/i.test(track.artist) ? 'video' : 'song'
-  return kind === state.filter
+function syncSearchClear() {
+  if (!dom.searchClear) return
+  dom.searchClear.hidden = !dom.input.value
+}
+
+async function playSearchPlaylist(playlistId, shuffle) {
+  if (!playlistId) return
+  setStatus('abrindo a fila…')
+  try {
+    const queue = await api.queue('', playlistId)
+    const first = queue[0]
+    if (!first?.videoId) {
+      setStatus('fila sem faixas', 'error')
+      return
+    }
+    if (shuffle) {
+      state.shuffle = true
+      paintTransport()
+    }
+    play(first, shuffle ? shuffleQueue(queue, first.videoId) : queue)
+  } catch (error) {
+    setStatus(error.message ?? 'falha ao tocar', 'error')
+  }
 }
 
 function renderWatch(track) {
@@ -713,6 +716,10 @@ function isHomeRoute() {
   return hash === '/' || hash === ''
 }
 
+function isSearchRoute() {
+  return (location.hash.replace(/^#/, '').split('?')[0] || '/') === '/search'
+}
+
 function readHomeFeed(payload) {
   if (Array.isArray(payload)) return { chips: [], shelves: payload, message: '', header: null }
   return {
@@ -934,7 +941,7 @@ async function loadHome(args = {}) {
   }
 }
 
-async function runSearch(query) {
+async function runSearch(query, params = '') {
   const term = query.trim()
   if (!term) {
     renderHome()
@@ -943,9 +950,12 @@ async function runSearch(query) {
   rememberSearch(term)
   dom.main.innerHTML = `<p class="empty">Buscando “${escapeHtml(term)}”…</p>`
   try {
-    state.results = await api.search(term)
-    if (!location.hash.startsWith('#/search')) return
-    renderSearch(term, state.results)
+    const feed = await api.search(term, params || undefined)
+    const current = searchStateFromHash(location.hash)
+    if (current.query !== term || (current.params ?? '') !== (params ?? '')) return
+    state.search = feed
+    state.results = searchPlayableTracks(feed)
+    renderSearch(term, feed)
   } catch (error) {
     dom.main.innerHTML = `<p class="empty">Falha na busca: ${escapeHtml(error.message)}</p>`
   }
@@ -1119,15 +1129,15 @@ async function reloadMusic() {
 
 /* ── routing ────────────────────────────────────────────────────────────── */
 function route() {
-  dom.suggestions.hidden = true
+  hideSuggestions()
   const hash = location.hash.replace(/^#/, '') || '/'
-  const [path, queryString] = hash.split('?')
-  const params = new URLSearchParams(queryString ?? '')
+  const [path] = hash.split('?')
   if (path === '/search') {
-    const query = params.get('q') ?? ''
+    const { query, params: searchParams } = searchStateFromHash(location.hash)
     dom.input.value = query
-    renderSearchChips()
-    runSearch(query)
+    syncSearchClear()
+    dom.chips.innerHTML = ''
+    runSearch(query, searchParams)
     return
   }
   if (path.startsWith('/watch/')) {
@@ -1139,6 +1149,7 @@ function route() {
     return
   }
   dom.input.value = ''
+  syncSearchClear()
   state.chips = state.homeChips
   if (state.chips.length) renderMoodChips()
   else dom.chips.innerHTML = ''
@@ -1154,16 +1165,17 @@ function route() {
 function wireEvents() {
   dom.form.addEventListener('submit', (event) => {
     event.preventDefault()
-    dom.suggestions.hidden = true
-    location.hash = `#/search?q=${encodeURIComponent(dom.input.value.trim())}`
+    hideSuggestions()
+    dom.input.blur()
+    location.hash = searchHref(dom.input.value.trim())
   })
 
-  let suggestTimer
   dom.input.addEventListener('input', () => {
+    syncSearchClear()
     clearTimeout(suggestTimer)
     const term = dom.input.value.trim()
     if (term.length < 2) {
-      dom.suggestions.hidden = true
+      hideSuggestions()
       return
     }
     suggestTimer = setTimeout(() => loadSuggestions(term), 250)
@@ -1195,18 +1207,6 @@ function wireEvents() {
         item.classList.toggle('is-active', item === mood)
       if (!isHomeRoute()) location.hash = '#/'
       loadHome({ params: mood.dataset.chipParams })
-      return
-    }
-    const chip = event.target.closest('[data-filter]')
-    if (!chip) return
-    state.filter = chip.dataset.filter
-    for (const item of dom.chips.querySelectorAll('.chip'))
-      item.classList.toggle('is-active', item === chip)
-    if (location.hash.startsWith('#/search')) {
-      renderSearch(
-        new URLSearchParams(location.hash.split('?')[1] ?? '').get('q') ?? '',
-        state.results,
-      )
     }
   })
 
@@ -1221,6 +1221,12 @@ function wireEvents() {
       openLogin()
       return
     }
+    const playlistBtn = event.target.closest('[data-play-playlist]')
+    if (playlistBtn?.dataset.playPlaylist) {
+      event.preventDefault()
+      playSearchPlaylist(playlistBtn.dataset.playPlaylist, playlistBtn.dataset.shuffle === 'true')
+      return
+    }
     const row = event.target.closest('[data-browse-id], [data-video-id], [data-playlist-id]')
     if (!row) return
     const browseId = row.dataset.browseId
@@ -1230,6 +1236,13 @@ function wireEvents() {
     }
     const videoId = row.dataset.videoId
     const playlistId = row.dataset.playlistId
+    if (isSearchRoute() && videoId) {
+      event.preventDefault()
+      const queue = (state.results ?? []).filter((item) => item.videoId)
+      const track = queue.find((item) => item.videoId === videoId)
+      if (track) play(track, queue)
+      return
+    }
     if (isCatalogBrowseId(browseIdFromPath(location.hash)) && videoId) {
       if (row.hasAttribute('data-radio')) {
         playCatalogRadio(state.album?.feed?.header, videoId, playlistId)
@@ -1404,6 +1417,14 @@ function wireEvents() {
   })
 
   window.addEventListener('hashchange', route)
+
+  if (dom.searchClear) {
+    dom.searchClear.addEventListener('click', () => {
+      dom.input.value = ''
+      syncSearchClear()
+      location.hash = '#/'
+    })
+  }
 }
 
 async function boot() {
