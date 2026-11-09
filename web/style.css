@@ -280,6 +280,14 @@ input {
   color: var(--text);
 }
 
+.rail-action[aria-current='true'] {
+  color: var(--text);
+}
+
+.rail-action[aria-current='true'] .rail-glyph {
+  color: var(--red);
+}
+
 .rail-glyph {
   display: grid;
   place-items: center;
@@ -1131,6 +1139,42 @@ input {
   font-variant-numeric: tabular-nums;
 }
 
+.track-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.offline-btn {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.offline-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.offline-btn:hover {
+  color: var(--text);
+}
+
+.offline-btn[data-saved='true'] {
+  color: var(--red);
+}
+
+.offline-current[data-saved='true'] {
+  color: var(--red);
+}
+
 .main:has(.search-page) {
   padding-top: 8px;
   gap: 0;
@@ -1286,6 +1330,69 @@ input {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.downloads-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.downloads-page h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 500;
+}
+
+.downloads-album-head {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 40px auto;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.downloads-album-art,
+.downloads-album-art.art-empty {
+  width: 72px;
+  height: 72px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+
+.downloads-album-copy h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.downloads-album-copy p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.downloads-play {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--red);
+  color: var(--on-red);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.downloads-play svg {
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+}
+
+.downloads-row {
+  grid-template-columns: 40px minmax(0, 1fr) 52px;
 }
 
 .search-row {
@@ -1497,10 +1604,17 @@ input {
   color: var(--dim);
 }
 
+.album-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
 .album-play {
   width: 56px;
   height: 56px;
-  margin-top: 16px;
+  margin-top: 0;
   border: 0;
   border-radius: 50%;
   background: var(--red);
@@ -1511,6 +1625,30 @@ input {
   transition:
     transform 160ms var(--ease),
     background-color 160ms var(--ease);
+}
+
+.album-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.album-download svg {
+  width: 16px;
+  height: 16px;
+}
+
+.album-download[data-saved='true'] {
+  color: var(--red);
 }
 
 .album-play:hover {

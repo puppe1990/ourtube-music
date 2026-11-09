@@ -71,6 +71,14 @@ test('small crimson marks sit on the liked glyph, play discs and account', () =>
   assert.match(cssRule(".account[data-logged-in='true']"), /border-color:\s*var\(--red\)/)
 })
 
+test('offline download control sits beside the row and the downloads page stacks albums', () => {
+  assert.match(cssRule('.offline-btn'), /border-radius:\s*50%/)
+  assert.match(cssRule(".offline-btn[data-saved='true']"), /color:\s*var\(--red\)/)
+  assert.match(cssRule(".offline-current[data-saved='true']"), /color:\s*var\(--red\)/)
+  assert.match(cssRule('.downloads-page'), /flex-direction:\s*column/)
+  assert.match(cssRule('.downloads-row'), /grid-template-columns:\s*40px minmax\(0, 1fr\) 52px/)
+})
+
 test('search page has YT Music tabs, a raised top card and circular artist rows', () => {
   assert.match(cssRule('.search-tabs'), /border-bottom:\s*1px solid var\(--line\)/)
   assert.match(cssRule(".search-tab[aria-current='true']"), /border-bottom-color:\s*var\(--text\)/)

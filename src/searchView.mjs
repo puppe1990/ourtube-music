@@ -1,4 +1,6 @@
-import { catalogHref } from './guide.mjs'
+import { catalogHref, isAlbumBrowseId } from './guide.mjs'
+import { isOfflineSaved } from './offline.mjs'
+import { offlineAlbumButton, offlineSaveButton } from './offlineView.mjs'
 import { searchHref } from './searchFeed.mjs'
 
 const ICON_PLAY =
@@ -88,17 +90,25 @@ function renderTop(top) {
     <div class="search-top-actions">
       ${topPlayButton(top, false)}
       ${topPlayButton(top, true)}
+      ${isAlbumBrowseId(top.browseId) ? offlineAlbumButton(top.browseId, 'none') : ''}
       ${more}
     </div>
   </article>`
 }
 
-function renderRow(item) {
+function rowDownload(item, saved) {
+  if (isAlbumBrowseId(item.browseId)) return offlineAlbumButton(item.browseId, 'none')
+  if (item.videoId) return offlineSaveButton(item.videoId, isOfflineSaved(saved, item.videoId))
+  return ''
+}
+
+function renderRow(item, saved) {
   const href = catalogHref(item)
   const tag = href ? 'a' : 'button'
   const extra = href ? `href="${href}"` : 'type="button"'
   const circle = isCircle(item) ? ' is-circle' : ''
-  return `<li>
+  const download = rowDownload(item, saved)
+  return `<li class="track-item">
     <${tag} class="search-row" ${extra} ${playAttrs(item)}>
       ${art(item, `search-row-art${circle}`)}
       <span class="search-row-text">
@@ -106,17 +116,18 @@ function renderRow(item) {
         <span>${escapeHtml(item.subtitle)}</span>
       </span>
     </${tag}>
+    ${download}
   </li>`
 }
 
-function renderItems(items, query) {
+function renderItems(items, query, saved) {
   if (!items.length) {
     return `<p class="empty">Nada encontrado para “${escapeHtml(query)}”.</p>`
   }
-  return `<ul class="search-list">${items.map(renderRow).join('')}</ul>`
+  return `<ul class="search-list">${items.map((item) => renderRow(item, saved)).join('')}</ul>`
 }
 
-export function renderSearchPage(feed, query) {
+export function renderSearchPage(feed, query, saved = []) {
   const tabs = Array.isArray(feed?.tabs) ? feed.tabs : []
   const chips = Array.isArray(feed?.chips) ? feed.chips : []
   const items = Array.isArray(feed?.items) ? feed.items : []
@@ -125,6 +136,6 @@ export function renderSearchPage(feed, query) {
     ${renderTabs(tabs, query)}
     ${renderChips(chips, query)}
     ${renderTop(feed?.top)}
-    ${empty ? renderItems([], query) : renderItems(items, query)}
+    ${empty ? renderItems([], query, saved) : renderItems(items, query, saved)}
   </section>`
 }

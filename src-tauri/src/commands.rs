@@ -6,6 +6,7 @@ use crate::audio_proxy::{audio_path, AudioProxy};
 use crate::auth;
 use crate::innertube::client::MusicClient;
 use crate::innertube::models::{Account, GuideEntry, HomeFeed, Lyrics, SearchFeed, Stream, Track};
+use crate::offline::{sanitize_video_id, OfflineStore, OfflineTrack};
 use crate::session::AuthSession;
 
 /// The innertube calls are blocking (reqwest::blocking), so every command hands
@@ -330,4 +331,120 @@ pub async fn music_audio(
         proxy.base_url(),
         audio_path(&video_id, variant.as_deref())
     ))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfflineList {
+    pub tracks: Vec<OfflineTrack>,
+    pub bytes_total: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfflineRemove {
+    pub removed: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfflineAlbumRemove {
+    pub removed: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn offline_list(
+    offline: tauri::State<'_, Arc<OfflineStore>>,
+) -> Result<OfflineList, String> {
+    let offline = Arc::clone(offline.inner());
+    on_blocking_pool(move || {
+        Ok(OfflineList {
+            tracks: offline.list(),
+            bytes_total: offline.bytes_total(),
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn offline_save(
+    session: tauri::State<'_, Arc<AuthSession>>,
+    offline: tauri::State<'_, Arc<OfflineStore>>,
+    video_id: String,
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    duration: Option<String>,
+    thumbnail: Option<String>,
+    browse_id: Option<String>,
+    playlist_id: Option<String>,
+) -> Result<OfflineTrack, String> {
+    let session = Arc::clone(session.inner());
+    let offline = Arc::clone(offline.inner());
+    on_blocking_pool(move || {
+        let video_id = sanitize_video_id(&video_id)?.to_string();
+        if let Some(existing) = offline.get(&video_id) {
+            return Ok(existing);
+        }
+        let (stream, bytes) = authenticated(&session).fetch_media(&video_id, Some("muxed"))?;
+        let track = OfflineTrack {
+            video_id: video_id.clone(),
+            title: nonempty(title).unwrap_or(stream.title),
+            artist: nonempty(artist).unwrap_or(stream.author),
+            album: nonempty(album).unwrap_or_default(),
+            duration: nonempty(duration).unwrap_or_else(|| format_clock(stream.duration)),
+            thumbnail: nonempty(thumbnail).unwrap_or_default(),
+            browse_id: nonempty(browse_id).unwrap_or_default(),
+            playlist_id: nonempty(playlist_id).unwrap_or_default(),
+            bytes: 0,
+            mime_type: stream.mime_type,
+            saved_at: 0,
+        };
+        offline.put(track, &bytes)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn offline_remove(
+    offline: tauri::State<'_, Arc<OfflineStore>>,
+    video_id: String,
+) -> Result<OfflineRemove, String> {
+    let offline = Arc::clone(offline.inner());
+    on_blocking_pool(move || {
+        let video_id = sanitize_video_id(&video_id)?.to_string();
+        Ok(OfflineRemove {
+            removed: offline.remove(&video_id)?,
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn offline_remove_album(
+    offline: tauri::State<'_, Arc<OfflineStore>>,
+    browse_id: String,
+) -> Result<OfflineAlbumRemove, String> {
+    let offline = Arc::clone(offline.inner());
+    on_blocking_pool(move || {
+        Ok(OfflineAlbumRemove {
+            removed: offline.remove_album(&browse_id)?,
+        })
+    })
+    .await
+}
+
+fn nonempty(value: Option<String>) -> Option<String> {
+    value.and_then(|text| {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn format_clock(seconds: u32) -> String {
+    format!("{}:{:02}", seconds / 60, seconds % 60)
 }

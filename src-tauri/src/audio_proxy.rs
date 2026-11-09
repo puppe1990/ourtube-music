@@ -11,6 +11,7 @@ use std::thread;
 use std::time::Instant;
 
 use crate::innertube::client::MusicClient;
+use crate::offline::OfflineStore;
 use crate::session::AuthSession;
 
 const MAX_HEAD_BYTES: usize = 8 * 1024;
@@ -166,16 +167,17 @@ pub fn slice_for_range(total: u64, header: Option<&str>) -> Option<(u64, u64)> {
     Some((start, end))
 }
 
-pub fn start(session: Arc<AuthSession>) -> io::Result<AudioProxy> {
+pub fn start(session: Arc<AuthSession>, offline: Arc<OfflineStore>) -> io::Result<AudioProxy> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
     let cache: Arc<Mutex<HashMap<String, MediaFile>>> = Arc::new(Mutex::new(HashMap::new()));
     thread::spawn(move || {
         for connection in listener.incoming().flatten() {
             let session = Arc::clone(&session);
+            let offline = Arc::clone(&offline);
             let cache = Arc::clone(&cache);
             thread::spawn(move || {
-                let _ = serve(connection, session, cache);
+                let _ = serve(connection, session, offline, cache);
             });
         }
     });
@@ -187,6 +189,7 @@ pub fn start(session: Arc<AuthSession>) -> io::Result<AudioProxy> {
 fn serve(
     mut connection: TcpStream,
     session: Arc<AuthSession>,
+    offline: Arc<OfflineStore>,
     cache: Arc<Mutex<HashMap<String, MediaFile>>>,
 ) -> io::Result<()> {
     let head = read_head(&mut connection)?;
@@ -199,6 +202,10 @@ fn serve(
         return write_plain(&mut connection, 404, "not found");
     };
     let range = range_header(&mut lines);
+
+    if let Some((mime, bytes)) = offline.read_media(&request.video_id) {
+        return write_body(&mut connection, &mime, &bytes, range.as_deref());
+    }
 
     let key = format!("{}:{:?}", request.video_id, request.variant);
     let cached = cache.lock().ok().and_then(|map| {
@@ -229,11 +236,20 @@ fn serve(
             }
         }
     };
+    write_body(&mut connection, &mime, &bytes, range.as_deref())
 
+}
+
+fn write_body(
+    connection: &mut TcpStream,
+    mime: &str,
+    bytes: &[u8],
+    range: Option<&str>,
+) -> io::Result<()> {
     let total = bytes.len() as u64;
-    match slice_for_range(total, range.as_deref()) {
-        Some((start, end)) => write_slice(&mut connection, &mime, &bytes, total, start, end),
-        None => write_plain(&mut connection, 416, "range not satisfiable"),
+    match slice_for_range(total, range) {
+        Some((start, end)) => write_slice(connection, mime, bytes, total, start, end),
+        None => write_plain(connection, 416, "range not satisfiable"),
     }
 }
 

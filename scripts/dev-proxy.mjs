@@ -23,6 +23,7 @@ import {
   upstreamRequest,
 } from '../src/devUpstream.mjs'
 import { createLastFmNode } from '../src/lastfmNode.mjs'
+import { createOfflineNode, sanitizeVideoId } from '../src/offlineNode.mjs'
 import { lastFmAuthUrlAllowed } from '../src/lastfmSign.mjs'
 import { playbackSource } from '../src/playback.mjs'
 import { mergeAccount } from '../src/session.mjs'
@@ -78,6 +79,10 @@ async function proxyCommand(command, request, response) {
   try {
     if (command.startsWith('lastfm_')) {
       await proxyLastFm(command, args, response)
+      return
+    }
+    if (command.startsWith('offline_')) {
+      await proxyOffline(command, args, response)
       return
     }
     if (command === 'auth_state') {
@@ -222,6 +227,71 @@ const lastfm = createLastFmNode({
     await execFileAsync('open', [url])
   },
 })
+
+const offline = createOfflineNode({ dir: appConfigDir() })
+
+function clock(seconds) {
+  const value = Number(seconds) || 0
+  return `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}`
+}
+
+async function fetchTrackBytes(videoId) {
+  await credentialsForInnertube()
+  const upstream = upstreamRequest('music_stream', { videoId })
+  const playerResponse = await fetch(upstream.url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'user-agent': upstream.userAgent,
+      cookie: authCookies(),
+    },
+    body: JSON.stringify(upstream.body),
+  })
+  const stream = parseCommand('music_stream', await playerResponse.json(), { variant: 'muxed' })
+  const source = playbackSource(stream, 'muxed')
+  const bytes = await downloadMedia(source.url)
+  return { stream, bytes }
+}
+
+async function proxyOffline(command, args, response) {
+  try {
+    let payload
+    if (command === 'offline_list') payload = offline.view()
+    else if (command === 'offline_save') {
+      sanitizeVideoId(args.videoId)
+      if (offline.has(args.videoId)) payload = offline.get(args.videoId)
+      else {
+        const { stream, bytes } = await fetchTrackBytes(args.videoId)
+        payload = offline.put(
+          {
+            videoId: args.videoId,
+            title: args.title || stream.title,
+            artist: args.artist || stream.author,
+            album: args.album || '',
+            duration: args.duration || clock(stream.duration),
+            thumbnail: args.thumbnail || '',
+            browseId: args.browseId || '',
+            playlistId: args.playlistId || '',
+            mimeType: stream.mimeType || 'audio/mp4',
+          },
+          bytes,
+        )
+      }
+    } else if (command === 'offline_remove') {
+      sanitizeVideoId(args.videoId)
+      payload = { removed: offline.remove(args.videoId) }
+    } else if (command === 'offline_remove_album') {
+      payload = { removed: offline.removeAlbum(args.browseId) }
+    } else {
+      throw new Error(`unknown offline command ${command}`)
+    }
+    response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+    response.end(JSON.stringify(payload))
+  } catch (error) {
+    response.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
+    response.end(error.message)
+  }
+}
 
 async function proxyLastFm(command, args, response) {
   try {
@@ -398,6 +468,25 @@ function debugMedia(message) {
 
 async function proxyAudio(videoId, variant, request, response) {
   try {
+    const disk = offline.readMedia(videoId)
+    if (disk) {
+      const slice = parseRange(request.headers.range, disk.bytes.length)
+      if (!slice) {
+        response.writeHead(416, { 'content-type': 'text/plain' }).end('range not satisfiable')
+        return
+      }
+      const body = disk.bytes.subarray(slice.start, slice.end)
+      const partial = slice.start !== 0 || slice.end !== disk.bytes.length
+      response.writeHead(partial ? 206 : 200, {
+        'content-type': disk.mime,
+        'accept-ranges': 'bytes',
+        'content-range': `bytes ${slice.start}-${slice.end - 1}/${disk.bytes.length}`,
+        'content-length': body.length,
+        'cache-control': 'no-store',
+      })
+      response.end(body)
+      return
+    }
     const key = `${videoId}:${variant}`
     let entry = mediaCache.get(key)
     if (!entry || Date.now() - entry.at > MEDIA_TTL_MS) {

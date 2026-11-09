@@ -70,5 +70,7 @@ npm run ci && npm run rust:test
 
 ## Notice
 
-Personal use. The app does not download media, skip ads, or bypass a paywall; it
-plays what the web player plays. Follow the service terms.
+Personal use. Tracks you pin under **Downloads** are a private muxed cache on
+this Mac (`<app-config-dir>/offline/`). The app does not redistribute media, skip
+ads, or bypass a paywall; it plays what the web player plays. Follow the service
+terms.

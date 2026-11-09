@@ -4,4 +4,5 @@ pub mod commands;
 pub mod innertube;
 pub mod lastfm;
 pub mod lrclib;
+pub mod offline;
 pub mod session;

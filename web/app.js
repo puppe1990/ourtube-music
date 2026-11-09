@@ -41,6 +41,13 @@ import {
   lastFmCredit,
 } from '/src/lastfm.mjs'
 import { accountLabel } from '/src/session.mjs'
+import {
+  albumOfflineState,
+  albumTracksFromFeed,
+  groupOfflineLibrary,
+  isOfflineSaved,
+} from '/src/offline.mjs'
+import { offlineAlbumButton, offlineSaveButton, renderDownloadsPage } from '/src/offlineView.mjs'
 import { searchHref, searchPlayableTracks, searchStateFromHash } from '/src/searchFeed.mjs'
 import { renderSearchPage } from '/src/searchView.mjs'
 
@@ -59,6 +66,7 @@ const state = {
   current: null,
   recent: [],
   favorites: [],
+  offline: [],
   homeLoaded: false,
   guide: [],
   album: null,
@@ -94,6 +102,10 @@ const dom = {
   lastfm: $('#lastfm'),
   theme: $('#theme-toggle'),
   favorites: $('#favorites'),
+  downloads: $('#downloads'),
+  offlineCurrent: $('#offline-current'),
+  offlineIconSave: $('#offline-icon-save'),
+  offlineIconSaved: $('#offline-icon-saved'),
   recent: $('#recent'),
   player: $('#player'),
   audio: $('#audio'),
@@ -213,9 +225,15 @@ function eqBars() {
   return '<span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>'
 }
 
+function saveButton(track) {
+  return track?.videoId
+    ? offlineSaveButton(track.videoId, isOfflineSaved(state.offline, track.videoId))
+    : ''
+}
+
 function row(track, index) {
   const current = state.current?.videoId === track.videoId
-  return `<li>
+  return `<li class="track-item">
     <button class="track-row" type="button" data-video-id="${escapeHtml(track.videoId)}" data-current="${current}">
       <span class="track-index">${index + 1}</span>
       ${art(track, 'track-img')}
@@ -225,12 +243,13 @@ function row(track, index) {
       </span>
       <span class="track-duration">${escapeHtml(track.duration)}</span>
     </button>
+    ${saveButton(track)}
   </li>`
 }
 
 function albumRow(track, index) {
   const current = state.current?.videoId === track.videoId
-  return `<li>
+  return `<li class="track-item">
     <button class="track-row album-row" type="button" ${playAttrs(track)} data-current="${current}">
       <span class="track-index">${current ? ICON_PLAY : index + 1}</span>
       <span class="track-text">
@@ -239,12 +258,13 @@ function albumRow(track, index) {
       </span>
       <span class="track-duration">${escapeHtml(track.duration)}</span>
     </button>
+    ${saveButton(track)}
   </li>`
 }
 
 function artistRow(track) {
   const current = state.current?.videoId === track.videoId
-  return `<li>
+  return `<li class="track-item">
     <button class="track-row artist-row" type="button" ${playAttrs(track)} data-current="${current}">
       ${art(track, 'artist-row-art')}
       <span class="track-text"><strong>${escapeHtml(track.title)}</strong></span>
@@ -252,6 +272,7 @@ function artistRow(track) {
       <span class="artist-row-cell artist-row-plays">${escapeHtml(track.playCount)}</span>
       <span class="artist-row-cell artist-row-album">${escapeHtml(track.album)}</span>
     </button>
+    ${saveButton(track)}
   </li>`
 }
 
@@ -320,6 +341,7 @@ function renderSearch(query, feed) {
   dom.main.innerHTML = renderSearchPage(
     feed ?? state.search ?? { tabs: [], chips: [], top: null, items: [] },
     query,
+    state.offline,
   )
 }
 
@@ -508,7 +530,13 @@ function setLyricsOpen(open) {
 }
 
 function findTrack(videoId) {
-  const pools = [state.queue, state.results, state.favorites, ...state.shelves.map((s) => s.tracks)]
+  const pools = [
+    state.queue,
+    state.results,
+    state.favorites,
+    state.offline,
+    ...state.shelves.map((s) => s.tracks),
+  ]
   return pools.flat().find((track) => track.videoId === videoId) ?? null
 }
 
@@ -540,10 +568,20 @@ async function play(track, queue) {
   refreshHeart()
 
   try {
-    const [stream, audioSrc] = await Promise.all([
-      api.stream(track.videoId),
-      api.audio(track.videoId),
-    ])
+    const audioSrc = await api.audio(track.videoId)
+    let stream
+    try {
+      stream = await api.stream(track.videoId)
+    } catch (error) {
+      if (!isOfflineSaved(state.offline, track.videoId)) throw error
+      stream = {
+        title: track.title,
+        author: track.artist,
+        duration: 0,
+        mimeType: 'audio/mp4',
+        bitrate: 0,
+      }
+    }
     state.audioBase = audioSrc
     state.variantFallback = false
     dom.audio.src = audioSrc
@@ -574,13 +612,14 @@ async function play(track, queue) {
     refreshNowPlayingCover()
     dom.meta.textContent = [
       formatBitrate(stream.bitrate),
-      stream.mimeType.includes('mp4') ? 'AAC' : 'Opus',
+      String(stream.mimeType || '').includes('mp4') ? 'AAC' : 'Opus',
     ]
       .filter(Boolean)
       .join(' · ')
     dom.total.textContent = formatDuration(stream.duration)
     setStatus('')
     refreshHeart()
+    refreshOfflineCurrent()
     lastFm.onPlay(enriched, enriched.durationSec).catch(() => {})
     if (state.lyricsOpen) loadLyrics()
   } catch (error) {
@@ -710,6 +749,178 @@ function toggleCurrentFavorite() {
   if (location.hash.startsWith('#/favorites')) renderFavorites()
 }
 
+function isDownloadsRoute() {
+  return (location.hash.replace(/^#/, '').split('?')[0] || '/') === '/downloads'
+}
+
+function renderOfflineLibrary() {
+  dom.main.innerHTML = renderDownloadsPage({
+    tracks: state.offline,
+    playingId: state.current?.videoId ?? '',
+  })
+}
+
+async function loadOffline() {
+  try {
+    const payload = await api.offlineList()
+    state.offline = Array.isArray(payload?.tracks) ? payload.tracks : []
+  } catch (_error) {
+    state.offline = []
+  }
+  refreshOfflineCurrent()
+}
+
+function refreshOfflineCurrent() {
+  if (!dom.offlineCurrent) return
+  const saved = state.current ? isOfflineSaved(state.offline, state.current.videoId) : false
+  dom.offlineCurrent.dataset.saved = saved ? 'true' : 'false'
+  dom.offlineCurrent.setAttribute('aria-pressed', saved ? 'true' : 'false')
+  dom.offlineCurrent.setAttribute('aria-label', saved ? 'Remover download' : 'Baixar')
+  if (dom.offlineIconSave) dom.offlineIconSave.hidden = saved
+  if (dom.offlineIconSaved) dom.offlineIconSaved.hidden = !saved
+}
+
+function paintRailExtras() {
+  if (!dom.downloads) return
+  if (isDownloadsRoute()) dom.downloads.setAttribute('aria-current', 'true')
+  else dom.downloads.removeAttribute('aria-current')
+}
+
+function paintOfflineViews() {
+  refreshOfflineCurrent()
+  if (isDownloadsRoute()) renderOfflineLibrary()
+  else if (isSearchRoute()) renderSearch(dom.input.value.trim(), state.search)
+  else if (isWatchRoute() && state.current) renderWatch(state.current)
+  else if (state.album && isCatalogBrowseId(browseIdFromPath(location.hash))) {
+    renderCatalogPage(state.album.browseId, state.album.feed)
+  } else if (location.hash.startsWith('#/favorites')) renderFavorites()
+}
+
+function albumContext() {
+  return isAlbumBrowseId(state.album?.browseId) ? state.album : null
+}
+
+function trackSaveFields(track) {
+  const album = albumContext()
+  const header = album?.feed?.header
+  return {
+    videoId: track.videoId,
+    title: track.title,
+    artist: track.artist || header?.artist || '',
+    album: track.album || header?.title || '',
+    duration: track.duration,
+    thumbnail: track.thumbnail || header?.thumbnail || '',
+    browseId: track.browseId || album?.browseId || '',
+    playlistId: track.playlistId,
+  }
+}
+
+function isOfflineIoError(message) {
+  return /no space|disk full|write |create |rename /i.test(String(message ?? ''))
+}
+
+async function saveTrack(track) {
+  if (!track?.videoId) return
+  setStatus('baixando…')
+  try {
+    await api.offlineSave(trackSaveFields(track))
+    await loadOffline()
+    paintOfflineViews()
+    setStatus('')
+  } catch (error) {
+    setStatus(error.message ?? 'não deu pra baixar', 'error')
+  }
+}
+
+async function removeSavedTrack(videoId) {
+  try {
+    await api.offlineRemove(videoId)
+    await loadOffline()
+    paintOfflineViews()
+  } catch (error) {
+    setStatus(error.message ?? 'não deu pra remover', 'error')
+  }
+}
+
+async function saveAlbum(browseId) {
+  if (!isAlbumBrowseId(browseId)) return
+  let feed = state.album?.browseId === browseId ? state.album.feed : null
+  if (!feed) {
+    setStatus('abrindo o álbum…')
+    try {
+      feed = readHomeFeed(await api.browse(browseId))
+    } catch (error) {
+      setStatus(error.message ?? 'álbum indisponível', 'error')
+      return
+    }
+  }
+  const header = feed.header
+  const tracks = albumTracksFromFeed(feed).map((track) => ({
+    ...track,
+    browseId,
+    album: track.album || header?.title || '',
+    artist: track.artist || header?.artist || '',
+    thumbnail: track.thumbnail || header?.thumbnail || '',
+  }))
+  const queue = tracks.filter((track) => !isOfflineSaved(state.offline, track.videoId))
+  if (!queue.length) {
+    setStatus('')
+    return
+  }
+  let lastSkip = ''
+  for (let i = 0; i < queue.length; i += 1) {
+    setStatus(`baixando ${i + 1}/${queue.length}…`)
+    try {
+      await api.offlineSave(queue[i])
+    } catch (error) {
+      const message = error.message ?? ''
+      if (isOfflineIoError(message)) {
+        setStatus(message, 'error')
+        await loadOffline()
+        paintOfflineViews()
+        return
+      }
+      lastSkip = `não deu pra baixar “${queue[i].title}”`
+      setStatus(lastSkip, 'error')
+    }
+  }
+  await loadOffline()
+  paintOfflineViews()
+  setStatus(lastSkip, lastSkip ? 'error' : 'info')
+}
+
+async function removeSavedAlbum(browseId) {
+  try {
+    await api.offlineRemoveAlbum(browseId)
+    await loadOffline()
+    paintOfflineViews()
+  } catch (error) {
+    setStatus(error.message ?? 'não deu pra remover', 'error')
+  }
+}
+
+async function toggleTrackDownload(videoId) {
+  if (isOfflineSaved(state.offline, videoId)) {
+    await removeSavedTrack(videoId)
+    return
+  }
+  const track =
+    findTrack(videoId) || (state.current?.videoId === videoId ? state.current : { videoId })
+  await saveTrack(track)
+}
+
+async function toggleAlbumDownload(browseId) {
+  const tracks =
+    state.album?.browseId === browseId
+      ? albumTracksFromFeed(state.album.feed)
+      : state.offline.filter((track) => track.browseId === browseId)
+  if (albumOfflineState(state.offline, tracks) === 'all' && tracks.length) {
+    await removeSavedAlbum(browseId)
+    return
+  }
+  await saveAlbum(browseId)
+}
+
 /* ── data loading ───────────────────────────────────────────────────────── */
 function isHomeRoute() {
   const hash = location.hash.replace(/^#/, '') || '/'
@@ -731,7 +942,7 @@ function readHomeFeed(payload) {
 }
 
 function albumQueue(feed) {
-  return (feed?.shelves?.[0]?.tracks ?? []).filter((track) => track.videoId)
+  return albumTracksFromFeed(feed)
 }
 
 function albumPlayTarget(feed) {
@@ -838,6 +1049,9 @@ function renderAlbumPage(browseId, feed) {
   const playButton = playTrack
     ? `<button class="album-play" type="button" ${playAttrs(playTrack)} aria-label="Tocar álbum">${ICON_PLAY}</button>`
     : ''
+  const download = isAlbumBrowseId(browseId)
+    ? offlineAlbumButton(browseId, albumOfflineState(state.offline, tracks))
+    : ''
   const list = tracks.length
     ? `<ol class="track-list album-tracks">${tracks.map(albumRow).join('')}</ol>`
     : `<p class="empty">Este álbum veio sem faixas.</p>`
@@ -849,7 +1063,7 @@ function renderAlbumPage(browseId, feed) {
         <h1>${escapeHtml(header.title)}</h1>
         <p class="album-subtitle">${escapeHtml(header.subtitle)}</p>
         <p class="album-meta">${escapeHtml(header.secondSubtitle)}</p>
-        ${playButton}
+        <div class="album-actions">${playButton}${download}</div>
       </div>
       ${list}
     </section>
@@ -1130,6 +1344,7 @@ async function reloadMusic() {
 /* ── routing ────────────────────────────────────────────────────────────── */
 function route() {
   hideSuggestions()
+  paintRailExtras()
   const hash = location.hash.replace(/^#/, '') || '/'
   const [path] = hash.split('?')
   if (path === '/search') {
@@ -1155,6 +1370,10 @@ function route() {
   else dom.chips.innerHTML = ''
   if (path === '/favorites') {
     renderFavorites()
+    return
+  }
+  if (path === '/downloads') {
+    renderOfflineLibrary()
     return
   }
   renderHome()
@@ -1221,6 +1440,20 @@ function wireEvents() {
       openLogin()
       return
     }
+    const saveBtn = event.target.closest('[data-offline-save]')
+    if (saveBtn?.dataset.offlineSave) {
+      event.preventDefault()
+      event.stopPropagation()
+      toggleTrackDownload(saveBtn.dataset.offlineSave)
+      return
+    }
+    const albumBtn = event.target.closest('[data-offline-album]')
+    if (albumBtn?.dataset.offlineAlbum) {
+      event.preventDefault()
+      event.stopPropagation()
+      toggleAlbumDownload(albumBtn.dataset.offlineAlbum)
+      return
+    }
     const playlistBtn = event.target.closest('[data-play-playlist]')
     if (playlistBtn?.dataset.playPlaylist) {
       event.preventDefault()
@@ -1236,6 +1469,22 @@ function wireEvents() {
     }
     const videoId = row.dataset.videoId
     const playlistId = row.dataset.playlistId
+    if (row.dataset.offlineQueue && videoId) {
+      event.preventDefault()
+      const album = groupOfflineLibrary(state.offline).albums.find(
+        (item) => item.browseId === row.dataset.offlineQueue,
+      )
+      const queue = album?.tracks ?? state.offline
+      const track = queue.find((item) => item.videoId === videoId) ?? findTrack(videoId)
+      if (track) play(track, queue)
+      return
+    }
+    if (isDownloadsRoute() && videoId) {
+      event.preventDefault()
+      const track = findTrack(videoId)
+      if (track) play(track, state.offline)
+      return
+    }
     if (isSearchRoute() && videoId) {
       event.preventDefault()
       const queue = (state.results ?? []).filter((item) => item.videoId)
@@ -1275,6 +1524,14 @@ function wireEvents() {
 
   dom.favorites.addEventListener('click', () => {
     location.hash = '#/favorites'
+  })
+
+  dom.downloads?.addEventListener('click', () => {
+    location.hash = '#/downloads'
+  })
+
+  dom.offlineCurrent?.addEventListener('click', () => {
+    if (state.current?.videoId) toggleTrackDownload(state.current.videoId)
   })
 
   dom.heart.addEventListener('click', toggleCurrentFavorite)
@@ -1434,6 +1691,7 @@ async function boot() {
     state.recent = []
   }
   state.favorites = readFavorites(localStorage.getItem('ourtube-favorites'))
+  await loadOffline()
 
   const savedTheme = (() => {
     try {
