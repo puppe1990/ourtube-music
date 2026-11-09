@@ -94,6 +94,12 @@ body {
   margin: 0;
   padding: 0;
   height: 100%;
+  color-scheme: dark;
+}
+
+html[data-theme='light'],
+html[data-theme='light'] body {
+  color-scheme: light;
 }
 
 body {
@@ -245,6 +251,23 @@ input {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--red) transparent;
+}
+
+.rail-block-grow::-webkit-scrollbar {
+  -webkit-appearance: none;
+  width: 6px;
+  background: transparent;
+}
+
+.rail-block-grow::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rail-block-grow::-webkit-scrollbar-thumb {
+  background: var(--red);
+  border-radius: 999px;
 }
 
 .rail-label {
@@ -323,6 +346,23 @@ input {
   padding: 0;
   list-style: none;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--red) transparent;
+}
+
+.rail-list::-webkit-scrollbar {
+  -webkit-appearance: none;
+  width: 6px;
+  background: transparent;
+}
+
+.rail-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rail-list::-webkit-scrollbar-thumb {
+  background: var(--red);
+  border-radius: 999px;
 }
 
 .rail-list button {
@@ -785,15 +825,21 @@ input {
   flex-direction: column;
   gap: 32px;
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--text) 28%, transparent) transparent;
+  scrollbar-color: var(--red) transparent;
 }
 
 .main::-webkit-scrollbar {
+  -webkit-appearance: none;
   width: 8px;
+  background: transparent;
+}
+
+.main::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .main::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--text) 22%, transparent);
+  background: var(--red);
   border-radius: 4px;
 }
 

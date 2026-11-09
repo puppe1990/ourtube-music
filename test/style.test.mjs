@@ -63,6 +63,15 @@ test('rail items keep a 6px pip and the current one is crimson', () => {
   assert.match(current, /box-shadow:\s*0 0 0 4px var\(--red-soft\)/)
 })
 
+test('vertical scrollbars are crimson with a transparent track', () => {
+  for (const selector of ['.rail-block-grow', '.rail-list', '.main']) {
+    assert.match(cssRule(selector), /scrollbar-color:\s*var\(--red\) transparent/)
+    assert.match(cssRule(`${selector}::-webkit-scrollbar`), /background:\s*transparent/)
+    assert.match(cssRule(`${selector}::-webkit-scrollbar-track`), /background:\s*transparent/)
+    assert.match(cssRule(`${selector}::-webkit-scrollbar-thumb`), /background:\s*var\(--red\)/)
+  }
+})
+
 test('small crimson marks sit on the liked glyph, play discs and account', () => {
   assert.match(cssRule('.rail-glyph-red'), /background:\s*var\(--red\)/)
   assert.match(cssRule('.card-play'), /background:\s*var\(--red\)/)
