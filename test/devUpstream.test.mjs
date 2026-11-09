@@ -22,6 +22,16 @@ test('search posts the query with the WEB_REMIX context', () => {
   assert.equal(request.body.context.client.clientName, 'WEB_REMIX')
 })
 
+test('search posts filter params on the innertube body', () => {
+  const query = faker.music.songName()
+  const params = faker.string.alphanumeric(24)
+
+  const request = upstreamRequest('music_search', { query, params })
+
+  assert.equal(request.body.query, query)
+  assert.equal(request.body.params, params)
+})
+
 test('home browses the music home feed', () => {
   const request = upstreamRequest('music_home', {})
 

@@ -10,10 +10,10 @@ use crate::innertube::endpoints::{
     USER_AGENT, VR_ANDROID_SDK, VR_CLIENT_NAME, VR_CLIENT_VERSION, VR_DEVICE_MAKE, VR_DEVICE_MODEL,
     VR_OS_VERSION, VR_USER_AGENT, WEB_CLIENT_NAME, WEB_CLIENT_VERSION,
 };
-use crate::innertube::models::{Account, GuideEntry, HomeFeed, Lyrics, Stream, Track};
+use crate::innertube::models::{Account, GuideEntry, HomeFeed, Lyrics, SearchFeed, Stream, Track};
 use crate::innertube::parsers::{
     parse_account, parse_guide, parse_home_feed, parse_list_account_rows, parse_lyrics,
-    parse_lyrics_browse_id, parse_queue, parse_search_results, parse_stream_with, parse_suggestions,
+    parse_lyrics_browse_id, parse_queue, parse_search_feed, parse_stream_with, parse_suggestions,
 };
 
 pub const HOME_BROWSE_IDS: [&str; 2] = ["FEmusic_home", "FEmusic_explore"];
@@ -227,9 +227,13 @@ impl MusicClient {
         parse_home_feed(&payload)
     }
 
-    pub fn search(&self, query: &str) -> Result<Vec<Track>, String> {
-        let payload = self.call(SEARCH, request_body(SEARCH, json!({ "query": query })))?;
-        parse_search_results(&payload)
+    pub fn search(&self, query: &str, params: Option<&str>) -> Result<SearchFeed, String> {
+        let mut body = json!({ "query": query });
+        if let Some(params) = params.map(str::trim).filter(|value| !value.is_empty()) {
+            body["params"] = json!(params);
+        }
+        let payload = self.call(SEARCH, request_body(SEARCH, body))?;
+        parse_search_feed(&payload)
     }
 
     pub fn lyrics(
@@ -259,7 +263,10 @@ impl MusicClient {
                 ..Lyrics::default()
             });
         }
-        let payload = self.call(BROWSE, request_body(BROWSE, json!({ "browseId": browse_id })))?;
+        let payload = self.call(
+            BROWSE,
+            request_body(BROWSE, json!({ "browseId": browse_id })),
+        )?;
         parse_lyrics(&payload)
     }
 

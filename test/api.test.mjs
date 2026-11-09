@@ -50,6 +50,16 @@ test('search sends the query as a command argument', async () => {
   assert.deepEqual(calls, [{ command: 'music_search', args: { query } }])
 })
 
+test('search sends innertube filter params when given', async () => {
+  const query = faker.music.songName()
+  const params = faker.string.alphanumeric(24)
+  const { calls, invoke } = recordingInvoke()
+
+  await createMusicApi(invoke).search(query, params)
+
+  assert.deepEqual(calls, [{ command: 'music_search', args: { query, params } }])
+})
+
 test('stream and queue send the video id', async () => {
   const videoId = faker.string.alphanumeric(11)
   const { calls, invoke } = recordingInvoke()

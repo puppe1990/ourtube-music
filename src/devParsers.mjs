@@ -1,6 +1,8 @@
 // Mirror of src-tauri/src/innertube/parsers.rs so the browser preview (`npm run
 // dev`) returns the same shapes the Tauri commands return.
 
+import { parseSearchFeed } from './searchFeed.mjs'
+
 function findNodes(node, key, found = []) {
   if (Array.isArray(node)) {
     for (const item of node) findNodes(item, key, found)
@@ -141,6 +143,8 @@ function emptyTrack() {
     duration: '',
     thumbnail: '',
     playCount: '',
+    subtitle: '',
+    resultType: '',
   }
 }
 
@@ -206,7 +210,7 @@ function anyTrack(renderers) {
 }
 
 export function parseSearchResults(payload) {
-  return findNodes(payload, 'musicResponsiveListItemRenderer').map(responsiveTrack).filter(Boolean)
+  return parseSearchFeed(payload).items
 }
 
 function tracksFromContents(contents) {
@@ -520,7 +524,7 @@ export function parseListAccounts(payload) {
 const PARSERS = {
   music_home: parseHomeFeed,
   music_browse: parseHomeFeed,
-  music_search: parseSearchResults,
+  music_search: parseSearchFeed,
   music_queue: parseQueue,
   music_stream: parseStream,
   music_suggestions: parseSuggestions,

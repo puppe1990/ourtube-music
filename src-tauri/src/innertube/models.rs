@@ -15,6 +15,10 @@ pub struct Track {
     pub thumbnail: String,
     #[serde(default)]
     pub play_count: String,
+    #[serde(default)]
+    pub subtitle: String,
+    #[serde(default)]
+    pub result_type: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +54,34 @@ pub struct BrowseHeader {
     pub mix_video_id: String,
     #[serde(default)]
     pub subscriber_count: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchTop {
+    pub title: String,
+    pub subtitle: String,
+    pub thumbnail: String,
+    #[serde(default)]
+    pub browse_id: String,
+    #[serde(default)]
+    pub video_id: String,
+    #[serde(default)]
+    pub playlist_id: String,
+    #[serde(default)]
+    pub shuffle_playlist_id: String,
+    #[serde(default)]
+    pub result_type: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchFeed {
+    pub tabs: Vec<HomeChip>,
+    pub chips: Vec<HomeChip>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top: Option<SearchTop>,
+    pub items: Vec<Track>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

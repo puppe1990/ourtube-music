@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::audio_proxy::{audio_path, AudioProxy};
 use crate::auth;
 use crate::innertube::client::MusicClient;
-use crate::innertube::models::{Account, GuideEntry, HomeFeed, Lyrics, Stream, Track};
+use crate::innertube::models::{Account, GuideEntry, HomeFeed, Lyrics, SearchFeed, Stream, Track};
 use crate::session::AuthSession;
 
 /// The innertube calls are blocking (reqwest::blocking), so every command hands
@@ -51,9 +51,10 @@ pub async fn music_home(
 pub async fn music_search(
     session: tauri::State<'_, Arc<AuthSession>>,
     query: String,
-) -> Result<Vec<Track>, String> {
+    params: Option<String>,
+) -> Result<SearchFeed, String> {
     let session = Arc::clone(session.inner());
-    on_blocking_pool(move || authenticated(&session).search(&query)).await
+    on_blocking_pool(move || authenticated(&session).search(&query, params.as_deref())).await
 }
 
 #[tauri::command]
