@@ -7,8 +7,8 @@ decifrada em 05/11/2026. O Rust fala com a API; o JS só desenha e toca o áudio
 
 ```bash
 npm ci --include=dev     # o ambiente exporta NODE_ENV=production; sem a flag as devDeps somem
-npm test                 # node --test + @faker-js/faker (16 testes)
-npm run rust:test        # cargo test (19 testes, fixtures com a crate `fake`)
+npm test                 # node --test + @faker-js/faker
+npm run rust:test        # cargo test (fixtures com a crate `fake`)
 npm run lint
 npm run format:check
 npm run ci               # format:check + lint + test
@@ -27,17 +27,21 @@ Chaves Last.fm e sessão Google ficam em `<app_config_dir>/` (`lastfm.json`,
 
 ## Endpoints mapeados (fonte: captura decifrada)
 
-| Comando Tauri       | Endpoint                                         | Cliente     |
-| ------------------- | ------------------------------------------------ | ----------- |
-| `music_home`        | `POST /youtubei/v1/browse` (`FEmusic_home`)      | WEB_REMIX   |
-| `music_browse`      | `POST /youtubei/v1/browse` (Explorar/Biblioteca) | WEB_REMIX   |
-| `music_search`      | `POST /youtubei/v1/search`                       | WEB_REMIX   |
-| `music_queue`       | `POST /youtubei/v1/next`                         | WEB_REMIX   |
-| `music_lyrics`      | `/next` → `MPLYt_*` then browse; LRCLib for cues | WEB_REMIX   |
-| `music_stream`      | `POST /youtubei/v1/player`                       | **ANDROID** |
-| `music_suggestions` | `POST /youtubei/v1/music/get_search_suggestions` | WEB_REMIX   |
-| `music_guide`       | `POST /youtubei/v1/guide`                        | WEB_REMIX   |
-| `music_account`     | `POST /youtubei/v1/account/account_menu`         | WEB_REMIX   |
+| Comando Tauri          | Endpoint                                         | Cliente     |
+| ---------------------- | ------------------------------------------------ | ----------- |
+| `music_home`           | `POST /youtubei/v1/browse` (`FEmusic_home`)      | WEB_REMIX   |
+| `music_browse`         | `POST /youtubei/v1/browse` (Explorar/Biblioteca) | WEB_REMIX   |
+| `music_search`         | `POST /youtubei/v1/search`                       | WEB_REMIX   |
+| `music_queue`          | `POST /youtubei/v1/next`                         | WEB_REMIX   |
+| `music_lyrics`         | `/next` → `MPLYt_*` then browse; LRCLib for cues | WEB_REMIX   |
+| `music_stream`         | `POST /youtubei/v1/player`                       | **ANDROID** |
+| `music_suggestions`    | `POST /youtubei/v1/music/get_search_suggestions` | WEB_REMIX   |
+| `music_guide`          | `POST /youtubei/v1/guide`                        | WEB_REMIX   |
+| `music_account`        | `POST /youtubei/v1/account/account_menu`         | WEB_REMIX   |
+| `offline_list`         | `app_config_dir/offline/index.json`              | —           |
+| `offline_save`         | ANDROID `/player` + write `offline/media/*.m4a`  | ANDROID     |
+| `offline_remove`       | drop one file + index row                        | —           |
+| `offline_remove_album` | drop every track with that `MPREb_`              | —           |
 
 WEB_REMIX responde `UNPLAYABLE` no `/player`; o cliente ANDROID devolve URL
 direta do `googlevideo.com` no itag 18 progressivo (`ftypmp42`, sondado em
@@ -52,6 +56,9 @@ ANDROID_VR agora responde `LOGIN_REQUIRED`. Não troque isso sem testar o
 - O proxy baixa a faixa inteira em janelas de 256/64/16 KB com pausa de 120 ms e
   backoff em 403 (o CDN limita rajadas e recusa spans > ~256 KB), guarda em
   memória por 15 min e serve `Range` local — o `<audio>` toca e busca normal.
+  Faixas pinadas em Downloads ficam em `<app_config_dir>/offline/` (`index.json` +
+  `media/{videoId}.m4a`, modo `0600`). O `/audio/{videoId}` serve o disco primeiro,
+  depois o RAM, depois o CDN. Álbum baixa faixa a faixa (JS), sem rajada no CDN.
 - googlevideo GET usa o UA do app Android e não manda Cookie (a captura oficial
   também não manda). 403 ainda pode aparecer em parte do catálogo.
 
@@ -68,17 +75,18 @@ ANDROID_VR agora responde `LOGIN_REQUIRED`. Não troque isso sem testar o
 
 ## Estrutura
 
-| Caminho                                | Responsabilidade                                  |
-| -------------------------------------- | ------------------------------------------------- |
-| `src-tauri/src/innertube/endpoints.rs` | constantes das rotas/clientes                     |
-| `src-tauri/src/innertube/models.rs`    | structs serde (camelCase pro JS)                  |
-| `src-tauri/src/innertube/parsers.rs`   | JSON → modelo (funções puras, testadas)           |
-| `src-tauri/src/innertube/client.rs`    | corpo da requisição + HTTP blocking               |
-| `src-tauri/src/commands.rs`            | comandos Tauri (blocking pool)                    |
-| `src/`                                 | domínio JS puro (format, queue, api, devUpstream) |
-| `web/`                                 | UI (index.html, app.js, style.css)                |
-| `scripts/dev-proxy.mjs`                | preview no browser + proxy `/innertube/*`         |
-| `test/`                                | `node:test` com faker                             |
+| Caminho                                | Responsabilidade                                 |
+| -------------------------------------- | ------------------------------------------------ |
+| `src-tauri/src/innertube/endpoints.rs` | constantes das rotas/clientes                    |
+| `src-tauri/src/innertube/models.rs`    | structs serde (camelCase pro JS)                 |
+| `src-tauri/src/innertube/parsers.rs`   | JSON → modelo (funções puras, testadas)          |
+| `src-tauri/src/innertube/client.rs`    | corpo da requisição + HTTP blocking              |
+| `src-tauri/src/commands.rs`            | comandos Tauri (blocking pool)                   |
+| `src-tauri/src/offline.rs`             | índice + arquivos muxed do cache pessoal         |
+| `src/`                                 | domínio JS puro (format, queue, api, offline, …) |
+| `web/`                                 | UI (index.html, app.js, style.css)               |
+| `scripts/dev-proxy.mjs`                | preview no browser + proxy `/innertube/*`        |
+| `test/`                                | `node:test` com faker                            |
 
 ## Design (Obsidian Pulse)
 

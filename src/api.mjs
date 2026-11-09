@@ -20,6 +20,10 @@ export const COMMANDS = {
   lastfmNowPlaying: 'lastfm_now_playing',
   lastfmScrobble: 'lastfm_scrobble',
   lyrics: 'music_lyrics',
+  offlineList: 'offline_list',
+  offlineSave: 'offline_save',
+  offlineRemove: 'offline_remove',
+  offlineRemoveAlbum: 'offline_remove_album',
 }
 
 export function createMusicApi(invoke) {
@@ -47,6 +51,10 @@ export function createMusicApi(invoke) {
     lastfmNowPlaying: (payload) => invoke(COMMANDS.lastfmNowPlaying, payload),
     lastfmScrobble: (payload) => invoke(COMMANDS.lastfmScrobble, payload),
     lyrics: (videoId, extra = {}) => invoke(COMMANDS.lyrics, { videoId, ...extra }),
+    offlineList: () => invoke(COMMANDS.offlineList),
+    offlineSave: (track) => invoke(COMMANDS.offlineSave, track),
+    offlineRemove: (videoId) => invoke(COMMANDS.offlineRemove, { videoId }),
+    offlineRemoveAlbum: (browseId) => invoke(COMMANDS.offlineRemoveAlbum, { browseId }),
   }
 }
 

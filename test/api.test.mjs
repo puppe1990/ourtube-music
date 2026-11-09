@@ -34,10 +34,33 @@ test('every mapped endpoint has a command', () => {
     'lastfmScrobble',
     'lastfmState',
     'lyrics',
+    'offlineList',
+    'offlineRemove',
+    'offlineRemoveAlbum',
+    'offlineSave',
     'queue',
     'search',
     'stream',
     'suggestions',
+  ])
+})
+
+test('offline save and remove send the video id', async () => {
+  const videoId = faker.string.alphanumeric(11)
+  const browseId = `MPREb_${faker.string.alphanumeric(8)}`
+  const { calls, invoke } = recordingInvoke()
+  const api = createMusicApi(invoke)
+
+  await api.offlineList()
+  await api.offlineSave({ videoId, browseId })
+  await api.offlineRemove(videoId)
+  await api.offlineRemoveAlbum(browseId)
+
+  assert.deepEqual(calls, [
+    { command: 'offline_list', args: undefined },
+    { command: 'offline_save', args: { videoId, browseId } },
+    { command: 'offline_remove', args: { videoId } },
+    { command: 'offline_remove_album', args: { browseId } },
   ])
 })
 

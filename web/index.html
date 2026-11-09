@@ -42,6 +42,23 @@
             </span>
             Músicas curtidas
           </button>
+          <button id="downloads" class="rail-action" type="button">
+            <span class="rail-glyph" aria-hidden="true">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M12 4v12"></path>
+                <path d="M7 11l5 5 5-5"></path>
+                <path d="M5 20h14"></path>
+              </svg>
+            </span>
+            Downloads
+          </button>
         </div>
 
         <div class="rail-block rail-block-grow">
@@ -144,6 +161,42 @@
             <span id="player-artist">—</span>
             <span id="player-meta" class="dock-meta"></span>
           </div>
+          <button
+            id="offline-current"
+            class="icon-button offline-current"
+            type="button"
+            aria-label="Baixar"
+            aria-pressed="false"
+            data-saved="false"
+          >
+            <svg
+              id="offline-icon-save"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 4v12"></path>
+              <path d="M7 11l5 5 5-5"></path>
+              <path d="M5 20h14"></path>
+            </svg>
+            <svg
+              id="offline-icon-saved"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              hidden
+            >
+              <path d="M5 12l5 5 9-9"></path>
+            </svg>
+          </button>
           <button
             id="heart"
             class="icon-button heart"
