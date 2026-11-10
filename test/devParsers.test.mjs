@@ -198,6 +198,99 @@ test('home mix cards keep the playlist id from the play overlay', () => {
   assert.equal(feed.continuation, 'token-1')
 })
 
+test('home carousel keeps Mais browse id, explicit badge and artist catalog id', () => {
+  const title = faker.music.album()
+  const artist = faker.music.artist()
+  const albumId = `MPREb_${faker.string.alphanumeric(12)}`
+  const artistId = `UC${faker.string.alphanumeric(22)}`
+  const moreId = 'FEmusic_new_releases_albums'
+
+  const feed = parseHomeFeed({
+    contents: {
+      sectionListRenderer: {
+        contents: [
+          {
+            musicCarouselShelfRenderer: {
+              header: {
+                musicCarouselShelfBasicHeaderRenderer: {
+                  title: runs('Lançamentos'),
+                  moreContentButton: {
+                    buttonRenderer: {
+                      text: runs('Mais'),
+                      navigationEndpoint: { browseEndpoint: { browseId: moreId } },
+                    },
+                  },
+                },
+              },
+              contents: [
+                {
+                  musicTwoRowItemRenderer: {
+                    title: runs(title),
+                    subtitle: {
+                      runs: [
+                        { text: 'Álbum' },
+                        { text: ' • ' },
+                        {
+                          text: artist,
+                          navigationEndpoint: { browseEndpoint: { browseId: artistId } },
+                        },
+                      ],
+                    },
+                    subtitleBadges: [
+                      {
+                        musicInlineBadgeRenderer: {
+                          icon: { iconType: 'MUSIC_EXPLICIT_BADGE' },
+                          accessibilityData: { accessibilityData: { label: 'Explícito' } },
+                        },
+                      },
+                    ],
+                    thumbnailRenderer: {
+                      musicThumbnailRenderer: { thumbnail: thumbs('https://img/rel') },
+                    },
+                    navigationEndpoint: { browseEndpoint: { browseId: albumId } },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  })
+
+  assert.equal(feed.shelves.length, 1)
+  assert.equal(feed.shelves[0].title, 'Lançamentos')
+  assert.equal(feed.shelves[0].moreBrowseId, moreId)
+  assert.equal(feed.shelves[0].tracks[0].title, title)
+  assert.equal(feed.shelves[0].tracks[0].album, 'Álbum')
+  assert.equal(feed.shelves[0].tracks[0].artist, artist)
+  assert.equal(feed.shelves[0].tracks[0].browseId, albumId)
+  assert.equal(feed.shelves[0].tracks[0].albumBrowseId, albumId)
+  assert.equal(feed.shelves[0].tracks[0].artistBrowseId, artistId)
+  assert.equal(feed.shelves[0].tracks[0].explicit, true)
+})
+
+test('home continuation falls back to continuationCommand token', () => {
+  const token = faker.string.alphanumeric(24)
+  const feed = parseHomeFeed({
+    onResponseReceivedActions: [
+      {
+        appendContinuationItemsAction: {
+          continuationItems: [
+            {
+              continuationItemRenderer: {
+                continuationEndpoint: { continuationCommand: { token } },
+              },
+            },
+          ],
+        },
+      },
+    ],
+  })
+
+  assert.equal(feed.continuation, token)
+})
+
 test('library landing keeps the signed-out message', () => {
   const heading = faker.lorem.words(3)
   const message = faker.lorem.sentence()
@@ -444,6 +537,54 @@ test('queue splits artist and album out of a YouTube byline', () => {
   assert.equal(tracks[0].title, title)
   assert.equal(tracks[0].artist, artist)
   assert.equal(tracks[0].album, album)
+})
+
+test('queue reads album and artist browse ids from byline runs', () => {
+  const artist = faker.music.artist()
+  const album = faker.music.album()
+  const title = faker.music.songName()
+  const videoId = faker.string.alphanumeric(11)
+  const artistId = `UC${faker.string.alphanumeric(22)}`
+  const albumId = `MPREb_${faker.string.alphanumeric(12)}`
+  const views = `${faker.number.int({ min: 20, max: 900 })} mil visualizações`
+
+  const tracks = parseQueue({
+    contents: {
+      playlistPanelRenderer: {
+        contents: [
+          {
+            playlistPanelVideoRenderer: {
+              videoId,
+              title: runs(title),
+              longBylineText: {
+                runs: [
+                  {
+                    text: artist,
+                    navigationEndpoint: { browseEndpoint: { browseId: artistId } },
+                  },
+                  { text: ' • ' },
+                  {
+                    text: album,
+                    navigationEndpoint: { browseEndpoint: { browseId: albumId } },
+                  },
+                  { text: ' • ' },
+                  { text: views },
+                ],
+              },
+              lengthText: runs('3:41'),
+              thumbnail: thumbs('https://img/q'),
+            },
+          },
+        ],
+      },
+    },
+  })
+
+  assert.equal(tracks[0].artist, artist)
+  assert.equal(tracks[0].album, album)
+  assert.equal(tracks[0].artistBrowseId, artistId)
+  assert.equal(tracks[0].albumBrowseId, albumId)
+  assert.equal(tracks[0].browseId, '')
 })
 
 test('stream prefers MP4 audio over the higher-bitrate Opus/WebM', () => {
@@ -1000,6 +1141,38 @@ test('album header keeps the artist channel browse id from the strapline', () =>
   assert.equal(feed.header.artist, artist)
   assert.equal(feed.header.artistBrowseId, artistId)
   assert.equal(feed.header.pageType, 'album')
+})
+
+test('album tracks inherit the artist channel browse id from the header', () => {
+  const album = faker.music.album()
+  const artist = faker.music.artist()
+  const artistId = `UC${faker.string.alphanumeric(22)}`
+  const videoId = faker.string.alphanumeric(11)
+  const title = faker.music.songName()
+
+  const feed = parseHomeFeed({
+    contents: {
+      musicResponsiveHeaderRenderer: {
+        title: runs(album),
+        straplineTextOne: artistStrapline(artist, artistId),
+      },
+      musicShelfRenderer: {
+        contents: [
+          {
+            musicResponsiveListItemRenderer: {
+              flexColumns: [{ musicResponsiveListItemFlexColumnRenderer: { text: runs(title) } }],
+              playlistItemData: { videoId },
+            },
+          },
+        ],
+      },
+    },
+  })
+
+  assert.equal(feed.shelves[0].tracks[0].title, title)
+  assert.equal(feed.shelves[0].tracks[0].artist, artist)
+  assert.equal(feed.shelves[0].tracks[0].artistBrowseId, artistId)
+  assert.equal(feed.shelves[0].tracks[0].browseId, '')
 })
 
 test('artist browse feed reads the immersive banner, shuffle/mix and top songs', () => {

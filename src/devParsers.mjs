@@ -119,6 +119,28 @@ function firstBrowseId(node) {
   return ''
 }
 
+function bylineCatalogIds(node) {
+  let artistBrowseId = ''
+  let albumBrowseId = ''
+  for (const run of node?.runs ?? []) {
+    const browseId = run?.navigationEndpoint?.browseEndpoint?.browseId ?? ''
+    if (!artistBrowseId && browseId.startsWith('UC')) artistBrowseId = browseId
+    if (!albumBrowseId && browseId.startsWith('MPREb_')) albumBrowseId = browseId
+  }
+  return { artistBrowseId, albumBrowseId }
+}
+
+function columnCatalogIds(node) {
+  let artistBrowseId = ''
+  let albumBrowseId = ''
+  for (const column of node?.flexColumns ?? []) {
+    const ids = bylineCatalogIds(column?.musicResponsiveListItemFlexColumnRenderer?.text)
+    if (!artistBrowseId) artistBrowseId = ids.artistBrowseId
+    if (!albumBrowseId) albumBrowseId = ids.albumBrowseId
+  }
+  return { artistBrowseId, albumBrowseId }
+}
+
 function watchEndpoint(node) {
   return (
     field(node, 'playNavigationEndpoint', 'watchEndpoint') ??
@@ -137,6 +159,8 @@ function emptyTrack() {
     videoId: '',
     playlistId: '',
     browseId: '',
+    albumBrowseId: '',
+    artistBrowseId: '',
     title: '',
     artist: '',
     album: '',
@@ -145,6 +169,7 @@ function emptyTrack() {
     playCount: '',
     subtitle: '',
     resultType: '',
+    explicit: false,
   }
 }
 
@@ -164,12 +189,15 @@ function responsiveTrack(node) {
     ),
   ]
   const { artist, album } = bylineFields(title, texts)
+  const { artistBrowseId, albumBrowseId } = columnCatalogIds(node)
 
   return {
     ...emptyTrack(),
     videoId,
     playlistId: overlayPlaylistId(node),
     browseId: catalogBrowseId(node),
+    albumBrowseId,
+    artistBrowseId,
     title,
     artist,
     album,
@@ -177,6 +205,12 @@ function responsiveTrack(node) {
     thumbnail: largestThumbnail(field(node, 'thumbnail', 'musicThumbnailRenderer', 'thumbnail')),
     playCount: texts.find(looksLikePlayCount) ?? '',
   }
+}
+
+function isExplicit(node) {
+  return findNodes(node, 'musicInlineBadgeRenderer').some(
+    (badge) => field(badge, 'icon', 'iconType') === 'MUSIC_EXPLICIT_BADGE',
+  )
 }
 
 function twoRowTrack(node) {
@@ -187,17 +221,21 @@ function twoRowTrack(node) {
   const browseId = catalogBrowseId(node)
   if (!videoId && !playlistId && !browseId) return null
   const { artist, album } = splitByline(joinRuns(node.subtitle))
+  const ids = bylineCatalogIds(node.subtitle)
   return {
     ...emptyTrack(),
     videoId,
     playlistId,
     browseId,
+    albumBrowseId: ids.albumBrowseId || (browseId.startsWith('MPREb_') ? browseId : ''),
+    artistBrowseId: ids.artistBrowseId,
     title: joinRuns(node.title),
     artist,
     album,
     thumbnail: largestThumbnail(
       field(node, 'thumbnailRenderer', 'musicThumbnailRenderer', 'thumbnail'),
     ),
+    explicit: isExplicit(node),
   }
 }
 
@@ -223,10 +261,26 @@ function parseFeedMessage(payload) {
   return joinRuns(field(row, 'subtext', 'messageSubtextRenderer', 'text')) || joinRuns(row.text)
 }
 
+function carouselMoreBrowseId(carousel) {
+  return (
+    field(
+      carousel,
+      'header',
+      'musicCarouselShelfBasicHeaderRenderer',
+      'moreContentButton',
+      'buttonRenderer',
+      'navigationEndpoint',
+      'browseEndpoint',
+      'browseId',
+    ) ?? ''
+  )
+}
+
 function parseCarouselShelves(payload) {
   return findNodes(payload, 'musicCarouselShelfRenderer').map((carousel) => ({
     title: joinRuns(field(carousel, 'header', 'musicCarouselShelfBasicHeaderRenderer', 'title')),
     tracks: tracksFromContents(carousel.contents),
+    moreBrowseId: carouselMoreBrowseId(carousel),
   }))
 }
 
@@ -234,6 +288,7 @@ function parseListShelves(payload) {
   return findNodes(payload, 'musicShelfRenderer').map((shelf) => ({
     title: joinRuns(shelf.title),
     tracks: tracksFromContents(shelf.contents),
+    moreBrowseId: '',
   }))
 }
 
@@ -242,6 +297,7 @@ function parseGridShelves(payload) {
     title: joinRuns(field(grid, 'header', 'gridHeaderRenderer', 'title')),
     tracks: tracksFromContents(grid.items),
     layout: 'grid',
+    moreBrowseId: '',
   }))
 }
 
@@ -338,6 +394,7 @@ function enrichAlbumTracks(header, shelves) {
       album: track.album || header.title,
       thumbnail: track.thumbnail || header.thumbnail,
       playlistId: track.playlistId || header.playlistId,
+      artistBrowseId: track.artistBrowseId || header.artistBrowseId,
     })),
   }))
 }
@@ -365,7 +422,10 @@ export function parseHomeFeed(payload) {
       }
     })
     .filter((chip) => chip.label)
-  const continuation = findNodes(payload, 'nextContinuationData')[0]?.continuation ?? ''
+  const continuation =
+    findNodes(payload, 'nextContinuationData')[0]?.continuation ||
+    findNodes(payload, 'continuationCommand')[0]?.token ||
+    ''
   const header = parseBrowseHeader(payload)
   return {
     chips,
@@ -413,14 +473,18 @@ export function parseQueue(payload) {
     .filter((row) => row.videoId)
     .map((row) => {
       const { artist, album } = splitByline(joinRuns(row.longBylineText))
+      const { artistBrowseId, albumBrowseId } = bylineCatalogIds(row.longBylineText)
       return {
         videoId: row.videoId,
         playlistId: '',
+        browseId: '',
         title: joinRuns(row.title),
         artist,
         album,
         duration: joinRuns(row.lengthText),
         thumbnail: largestThumbnail(row.thumbnail),
+        albumBrowseId,
+        artistBrowseId,
       }
     })
 }

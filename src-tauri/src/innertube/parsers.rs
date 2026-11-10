@@ -202,10 +202,17 @@ fn search_item(node: &Value) -> Option<Track> {
     } else {
         search_byline(&title, &texts)
     };
+    let (artist_browse_id, album_browse_id) = if named {
+        (String::new(), String::new())
+    } else {
+        flex_catalog_ids(node)
+    };
     Some(Track {
         video_id,
         playlist_id,
         browse_id,
+        album_browse_id,
+        artist_browse_id,
         title,
         artist,
         album,
@@ -225,6 +232,7 @@ fn search_item(node: &Value) -> Option<Track> {
             .unwrap_or_default(),
         subtitle,
         result_type,
+        ..Track::default()
     })
 }
 
@@ -395,7 +403,7 @@ fn tracks_from_contents(contents: Option<&Value>) -> Vec<Track> {
 }
 
 fn push_shelf(shelves: &mut Vec<Shelf>, title: String, tracks: Vec<Track>) {
-    push_shelf_with_layout(shelves, title, tracks, String::new());
+    push_shelf_full(shelves, title, tracks, String::new(), String::new());
 }
 
 fn push_shelf_with_layout(
@@ -404,13 +412,41 @@ fn push_shelf_with_layout(
     tracks: Vec<Track>,
     layout: String,
 ) {
+    push_shelf_full(shelves, title, tracks, layout, String::new());
+}
+
+fn push_shelf_full(
+    shelves: &mut Vec<Shelf>,
+    title: String,
+    tracks: Vec<Track>,
+    layout: String,
+    more_browse_id: String,
+) {
     if !tracks.is_empty() {
         shelves.push(Shelf {
             title,
             tracks,
             layout,
+            more_browse_id,
         });
     }
+}
+
+fn carousel_more_browse_id(carousel: &Value) -> String {
+    string_field(
+        field(
+            carousel,
+            &[
+                "header",
+                "musicCarouselShelfBasicHeaderRenderer",
+                "moreContentButton",
+                "buttonRenderer",
+                "navigationEndpoint",
+                "browseEndpoint",
+            ],
+        ),
+        "browseId",
+    )
 }
 
 pub fn parse_home_shelves(payload: &Value) -> Result<Vec<Shelf>, String> {
@@ -420,13 +456,15 @@ pub fn parse_home_shelves(payload: &Value) -> Result<Vec<Shelf>, String> {
 fn parse_home_shelves_ordered(payload: &Value, lists_first: bool) -> Result<Vec<Shelf>, String> {
     let mut carousels = Vec::new();
     for carousel in find_nodes(payload, "musicCarouselShelfRenderer") {
-        push_shelf(
+        push_shelf_full(
             &mut carousels,
             join_runs(field(
                 carousel,
                 &["header", "musicCarouselShelfBasicHeaderRenderer", "title"],
             )),
             tracks_from_contents(carousel.get("contents")),
+            String::new(),
+            carousel_more_browse_id(carousel),
         );
     }
     let mut lists = Vec::new();
@@ -561,10 +599,8 @@ fn enrich_album_tracks(header: Option<&BrowseHeader>, shelves: Vec<Shelf>) -> Ve
     }
     shelves
         .into_iter()
-        .map(|shelf| Shelf {
-            title: shelf.title,
-            layout: shelf.layout,
-            tracks: shelf
+        .map(|mut shelf| {
+            shelf.tracks = shelf
                 .tracks
                 .into_iter()
                 .map(|mut track| {
@@ -580,9 +616,13 @@ fn enrich_album_tracks(header: Option<&BrowseHeader>, shelves: Vec<Shelf>) -> Ve
                     if track.playlist_id.is_empty() {
                         track.playlist_id = header.playlist_id.clone();
                     }
+                    if track.artist_browse_id.is_empty() {
+                        track.artist_browse_id = header.artist_browse_id.clone();
+                    }
                     track
                 })
-                .collect(),
+                .collect();
+            shelf
         })
         .collect()
 }
@@ -628,9 +668,16 @@ fn parse_chips(payload: &Value) -> Vec<HomeChip> {
 }
 
 fn parse_continuation(payload: &Value) -> String {
-    find_nodes(payload, "nextContinuationData")
+    let next = find_nodes(payload, "nextContinuationData")
         .first()
         .map(|row| string_field(Some(row), "continuation"))
+        .filter(|token| !token.is_empty());
+    if let Some(token) = next {
+        return token;
+    }
+    find_nodes(payload, "continuationCommand")
+        .first()
+        .map(|row| string_field(Some(row), "token"))
         .unwrap_or_default()
 }
 
@@ -700,6 +747,7 @@ pub fn parse_queue(payload: &Value) -> Result<Vec<Track>, String> {
             continue;
         }
         let (artist, album) = split_byline(&join_runs(row.get("longBylineText")));
+        let (artist_browse_id, album_browse_id) = byline_catalog_ids(row.get("longBylineText"));
         tracks.push(Track {
             video_id,
             playlist_id: String::new(),
@@ -708,6 +756,8 @@ pub fn parse_queue(payload: &Value) -> Result<Vec<Track>, String> {
             album,
             duration: join_runs(row.get("lengthText")),
             thumbnail: largest_thumbnail(row.get("thumbnail")),
+            album_browse_id,
+            artist_browse_id,
             ..Track::default()
         });
     }
@@ -998,6 +1048,48 @@ fn first_browse_id(node: Option<&Value>) -> String {
     String::new()
 }
 
+fn byline_catalog_ids(node: Option<&Value>) -> (String, String) {
+    let mut artist = String::new();
+    let mut album = String::new();
+    for run in array_items(node.and_then(|value| value.get("runs"))) {
+        let browse_id = string_field(
+            field(run, &["navigationEndpoint", "browseEndpoint"]),
+            "browseId",
+        );
+        if artist.is_empty() && browse_id.starts_with("UC") {
+            artist = browse_id.clone();
+        }
+        if album.is_empty() && browse_id.starts_with("MPREb_") {
+            album = browse_id;
+        }
+        if !artist.is_empty() && !album.is_empty() {
+            break;
+        }
+    }
+    (artist, album)
+}
+
+fn flex_catalog_ids(node: &Value) -> (String, String) {
+    let mut artist = String::new();
+    let mut album = String::new();
+    for column in array_items(node.get("flexColumns")) {
+        let (col_artist, col_album) = byline_catalog_ids(field(
+            column,
+            &["musicResponsiveListItemFlexColumnRenderer", "text"],
+        ));
+        if artist.is_empty() {
+            artist = col_artist;
+        }
+        if album.is_empty() {
+            album = col_album;
+        }
+        if !artist.is_empty() && !album.is_empty() {
+            break;
+        }
+    }
+    (artist, album)
+}
+
 fn watch_endpoint(node: Option<&Value>) -> Option<&Value> {
     let node = node?;
     field(node, &["playNavigationEndpoint", "watchEndpoint"])
@@ -1097,10 +1189,13 @@ fn responsive_track(node: &Value) -> Option<Track> {
         return None;
     }
     let (artist, album) = byline_fields(&title, &texts);
+    let (artist_browse_id, album_browse_id) = flex_catalog_ids(node);
     Some(Track {
         video_id,
         playlist_id: overlay_playlist_id(node),
         browse_id: catalog_browse_id(node),
+        album_browse_id,
+        artist_browse_id,
         title,
         artist,
         album,
@@ -1147,10 +1242,20 @@ fn two_row_track(node: &Value) -> Option<Track> {
         return None;
     }
     let (artist, album) = split_byline(&join_runs(node.get("subtitle")));
+    let (artist_browse_id, byline_album_id) = byline_catalog_ids(node.get("subtitle"));
+    let album_browse_id = if !byline_album_id.is_empty() {
+        byline_album_id
+    } else if browse_id.starts_with("MPREb_") {
+        browse_id.clone()
+    } else {
+        String::new()
+    };
     Some(Track {
         video_id,
         playlist_id,
         browse_id,
+        album_browse_id,
+        artist_browse_id,
         title: join_runs(node.get("title")),
         artist,
         album,
@@ -1160,8 +1265,15 @@ fn two_row_track(node: &Value) -> Option<Track> {
             &["thumbnailRenderer", "musicThumbnailRenderer", "thumbnail"],
         )),
         play_count: String::new(),
+        explicit: track_is_explicit(node),
         ..Track::default()
     })
+}
+
+fn track_is_explicit(node: &Value) -> bool {
+    find_nodes(node, "musicInlineBadgeRenderer")
+        .iter()
+        .any(|badge| string_field(field(badge, &["icon"]), "iconType") == "MUSIC_EXPLICIT_BADGE")
 }
 
 /// Mix/album cards put the play target on `thumbnailOverlay`; search rows

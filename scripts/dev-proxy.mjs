@@ -14,6 +14,7 @@ import {
   parseLyrics,
   parseLyricsBrowseId,
 } from '../src/devParsers.mjs'
+import { followHomeContinuations } from '../src/homeFeed.mjs'
 import { overlaySyncedLyrics } from '../src/lyrics.mjs'
 import { fetchSyncedLyrics } from '../src/lrclib.mjs'
 import {
@@ -187,6 +188,9 @@ async function proxyCommand(command, request, response) {
         body: JSON.stringify(explore.body),
       })
       parsed = parseCommand('music_home', await retry.json())
+    }
+    if (command === 'music_home') {
+      parsed = await followHomeContinuations(parsed, fetchBrowseContinuation)
     }
     response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
     response.end(JSON.stringify(parsed))
@@ -420,6 +424,17 @@ function innertubeHeaders(command, userAgent) {
 
 function homeIsEmpty(feed) {
   return !Array.isArray(feed?.shelves) || feed.shelves.length === 0
+}
+
+async function fetchBrowseContinuation(token) {
+  const upstream = upstreamRequest('music_browse', { continuation: token })
+  const retry = await fetch(upstream.url, {
+    method: 'POST',
+    headers: innertubeHeaders('music_browse', WEB_USER_AGENT),
+    body: JSON.stringify(upstream.body),
+  })
+  if (!retry.ok) return { shelves: [], continuation: '' }
+  return parseCommand('music_browse', await retry.json())
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))

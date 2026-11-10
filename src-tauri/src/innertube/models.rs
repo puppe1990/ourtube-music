@@ -8,6 +8,10 @@ pub struct Track {
     pub playlist_id: String,
     #[serde(default)]
     pub browse_id: String,
+    #[serde(default)]
+    pub album_browse_id: String,
+    #[serde(default)]
+    pub artist_browse_id: String,
     pub title: String,
     pub artist: String,
     pub album: String,
@@ -19,6 +23,8 @@ pub struct Track {
     pub subtitle: String,
     #[serde(default)]
     pub result_type: String,
+    #[serde(default)]
+    pub explicit: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +110,8 @@ pub struct Shelf {
     pub tracks: Vec<Track>,
     #[serde(default)]
     pub layout: String,
+    #[serde(default)]
+    pub more_browse_id: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

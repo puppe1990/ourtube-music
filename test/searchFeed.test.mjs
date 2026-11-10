@@ -23,7 +23,20 @@ function chip(label, params, selected = false) {
   }
 }
 
-function songRow({ videoId, title, artist, plays }) {
+function linkedRun(text, browseId) {
+  return { text, navigationEndpoint: { browseEndpoint: { browseId } } }
+}
+
+function songRow({ videoId, title, artist, plays, artistBrowseId, album, albumBrowseId }) {
+  const byline = artistBrowseId
+    ? {
+        runs: [
+          { text: 'Música • ' },
+          linkedRun(artist, artistBrowseId),
+          ...(albumBrowseId ? [{ text: ' • ' }, linkedRun(album, albumBrowseId)] : []),
+        ],
+      }
+    : runs('Música • ', artist)
   return {
     musicResponsiveListItemRenderer: {
       thumbnail: {
@@ -34,7 +47,7 @@ function songRow({ videoId, title, artist, plays }) {
       },
       flexColumns: [
         { musicResponsiveListItemFlexColumnRenderer: { text: runs(title) } },
-        { musicResponsiveListItemFlexColumnRenderer: { text: runs('Música • ', artist) } },
+        { musicResponsiveListItemFlexColumnRenderer: { text: byline } },
         { musicResponsiveListItemFlexColumnRenderer: { text: runs(plays) } },
       ],
       playlistItemData: { videoId },
@@ -351,6 +364,54 @@ test('parseSearchFeed reads tabs, decoded chips, top album and mixed rows', () =
   assert.equal(albumItem.browseId, album.browseId)
   assert.equal(albumItem.playlistId, album.playlistId)
   assert.equal(albumItem.artist, album.artist)
+})
+
+test('search song rows keep album and artist browse ids from byline runs', () => {
+  const videoId = faker.string.alphanumeric(11)
+  const title = faker.music.songName()
+  const artist = faker.music.artist()
+  const album = faker.music.album()
+  const artistBrowseId = `UC${faker.string.alphanumeric(22)}`
+  const albumBrowseId = `MPREb_${faker.string.alphanumeric(12)}`
+  const payload = {
+    contents: {
+      tabbedSearchResultsRenderer: {
+        tabs: [
+          {
+            tabRenderer: {
+              selected: true,
+              content: {
+                sectionListRenderer: {
+                  contents: [
+                    itemSection(
+                      songRow({
+                        videoId,
+                        title,
+                        artist,
+                        album,
+                        plays: 'Tocou 1 mi vezes',
+                        artistBrowseId,
+                        albumBrowseId,
+                      }),
+                    ),
+                  ],
+                },
+              },
+            },
+          },
+        ],
+      },
+    },
+  }
+
+  const [item] = parseSearchFeed(payload).items
+
+  assert.equal(item.videoId, videoId)
+  assert.equal(item.artist, artist)
+  assert.equal(item.album, album)
+  assert.equal(item.artistBrowseId, artistBrowseId)
+  assert.equal(item.albumBrowseId, albumBrowseId)
+  assert.equal(item.browseId, '')
 })
 
 test('parseSearchFeed skips the empty reset chip and keeps a selected filter', () => {

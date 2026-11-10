@@ -7,7 +7,13 @@ import {
   HOME_BROWSE_ID,
   LIBRARY_BROWSE_ID,
   browseIdFromPath,
+  catalogCardByline,
+  catalogContextFromPage,
   catalogHref,
+  catalogLabelHtml,
+  dockAlbumHref,
+  dockArtistHref,
+  mergeCatalogIds,
   feedHeading,
   guideHref,
   guideKind,
@@ -16,6 +22,7 @@ import {
   isLibraryBrowseId,
   libraryNeedsLogin,
   shelfCountLabel,
+  stampCatalogQueue,
   stepAction,
   stepHref,
 } from '../src/guide.mjs'
@@ -42,6 +49,17 @@ test('feedHeading names the official YTM rails in Portuguese', () => {
   assert.equal(feedHeading(EXPLORE_BROWSE_ID), 'Explorar')
   assert.equal(feedHeading(LIBRARY_BROWSE_ID), 'Biblioteca')
   assert.equal(feedHeading(HOME_BROWSE_ID), 'Início')
+  assert.equal(feedHeading('FEmusic_new_releases'), 'Lançamentos')
+  assert.equal(feedHeading('FEmusic_new_releases_albums'), 'Lançamentos')
+})
+
+test('catalogCardByline shows release type and artist', () => {
+  const artist = faker.music.artist()
+
+  assert.equal(catalogCardByline({ album: 'Álbum', artist }), `Álbum • ${artist}`)
+  assert.equal(catalogCardByline({ album: 'Single', artist }), `Single • ${artist}`)
+  assert.equal(catalogCardByline({ album: 'EP', artist }), `EP • ${artist}`)
+  assert.equal(catalogCardByline({ album: faker.music.album(), artist }), artist)
 })
 
 test('library chip pages stay under Biblioteca', () => {
@@ -112,6 +130,104 @@ test('catalogHref watches a song when there is no album browse id', () => {
   assert.equal(catalogHref({ videoId, playlistId }), `#/watch/${videoId}?list=${playlistId}`)
   assert.equal(catalogHref({ videoId }), `#/watch/${videoId}`)
   assert.equal(catalogHref({ playlistId }), '')
+})
+
+test('dockAlbumHref opens the album page from albumBrowseId or a saved MPREb browse id', () => {
+  const albumId = `MPREb_${faker.string.alphanumeric(12)}`
+  const artistId = `UC${faker.string.alphanumeric(22)}`
+  const videoId = faker.string.alphanumeric(11)
+
+  assert.equal(dockAlbumHref({ videoId, albumBrowseId: albumId }), `#/browse/${albumId}`)
+  assert.equal(dockAlbumHref({ videoId, browseId: albumId }), `#/browse/${albumId}`)
+  assert.equal(dockAlbumHref({ videoId, browseId: artistId, artistBrowseId: artistId }), '')
+  assert.equal(dockAlbumHref({ videoId }), '')
+})
+
+test('dockArtistHref opens the artist page from artistBrowseId or a UC browse id', () => {
+  const albumId = `MPREb_${faker.string.alphanumeric(12)}`
+  const artistId = `UC${faker.string.alphanumeric(22)}`
+  const videoId = faker.string.alphanumeric(11)
+
+  assert.equal(dockArtistHref({ videoId, artistBrowseId: artistId }), `#/browse/${artistId}`)
+  assert.equal(dockArtistHref({ browseId: artistId }), `#/browse/${artistId}`)
+  assert.equal(dockArtistHref({ videoId, browseId: albumId, albumBrowseId: albumId }), '')
+  assert.equal(dockArtistHref({ videoId }), '')
+})
+
+test('catalogLabelHtml wraps the dock name in a hash link when the href exists', () => {
+  const title = faker.string.alpha({ length: 18 })
+  const href = `#/browse/MPREb_${faker.string.alphanumeric(8)}`
+
+  assert.equal(catalogLabelHtml(title, href), `<a href="${href}">${title}</a>`)
+  assert.equal(catalogLabelHtml(title, ''), title)
+  assert.equal(catalogLabelHtml('', ''), '—')
+  assert.match(catalogLabelHtml('<b>x</b>', '#/browse/UC1'), /&lt;b&gt;x&lt;\/b&gt;/)
+})
+
+test('catalogContextFromPage only stamps album/artist ids while that catalog page is open', () => {
+  const albumId = `MPREb_${faker.string.alphanumeric(12)}`
+  const artistId = `UC${faker.string.alphanumeric(22)}`
+  const otherAlbum = `MPREb_${faker.string.alphanumeric(12)}`
+  const album = {
+    browseId: albumId,
+    feed: { header: { artistBrowseId: artistId } },
+  }
+
+  assert.deepEqual(catalogContextFromPage(`#/browse/${albumId}`, album), {
+    albumBrowseId: albumId,
+    artistBrowseId: artistId,
+  })
+  assert.deepEqual(catalogContextFromPage(`#/browse/${artistId}`, { browseId: artistId }), {
+    artistBrowseId: artistId,
+  })
+  assert.deepEqual(catalogContextFromPage('#/search?q=divine', album), {})
+  assert.deepEqual(catalogContextFromPage('#/', album), {})
+  assert.deepEqual(catalogContextFromPage(`#/browse/${otherAlbum}`, album), {})
+})
+
+test('mergeCatalogIds copies missing album/artist browse ids from a queue row', () => {
+  const albumId = `MPREb_${faker.string.alphanumeric(12)}`
+  const artistId = `UC${faker.string.alphanumeric(22)}`
+  const otherAlbum = `MPREb_${faker.string.alphanumeric(12)}`
+  const videoId = faker.string.alphanumeric(11)
+
+  const filled = mergeCatalogIds(
+    { videoId, title: faker.music.songName() },
+    { albumBrowseId: albumId, artistBrowseId: artistId },
+  )
+  const kept = mergeCatalogIds(
+    { videoId, albumBrowseId: otherAlbum, artistBrowseId: artistId },
+    { albumBrowseId: albumId, browseId: artistId },
+  )
+
+  assert.equal(filled.albumBrowseId, albumId)
+  assert.equal(filled.artistBrowseId, artistId)
+  assert.equal(kept.albumBrowseId, otherAlbum)
+  assert.equal(kept.artistBrowseId, artistId)
+})
+
+test('stampCatalogQueue fills missing album and artist browse ids without clobbering row ids', () => {
+  const albumId = `MPREb_${faker.string.alphanumeric(12)}`
+  const artistId = `UC${faker.string.alphanumeric(22)}`
+  const otherAlbum = `MPREb_${faker.string.alphanumeric(12)}`
+  const videoId = faker.string.alphanumeric(11)
+
+  const [fromAlbum, alreadySet] = stampCatalogQueue(
+    [
+      { videoId, title: faker.music.songName() },
+      {
+        videoId: faker.string.alphanumeric(11),
+        albumBrowseId: otherAlbum,
+        artistBrowseId: artistId,
+      },
+    ],
+    { albumBrowseId: albumId, artistBrowseId: artistId },
+  )
+
+  assert.equal(fromAlbum.albumBrowseId, albumId)
+  assert.equal(fromAlbum.artistBrowseId, artistId)
+  assert.equal(alreadySet.albumBrowseId, otherAlbum)
+  assert.equal(alreadySet.artistBrowseId, artistId)
 })
 
 test('stepHref stays on the album browse hash so next does not open /watch', () => {
