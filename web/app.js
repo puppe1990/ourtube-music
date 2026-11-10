@@ -4,14 +4,20 @@ import { formatBitrate, formatDuration, shorten } from '/src/format.mjs'
 import {
   HOME_BROWSE_ID,
   browseIdFromPath,
+  catalogCardByline,
+  catalogContextFromPage,
   catalogHref,
+  catalogLabelHtml,
+  dockAlbumHref,
+  dockArtistHref,
   feedHeading,
   guideHref,
   isAlbumBrowseId,
   isArtistBrowseId,
   isCatalogBrowseId,
   libraryNeedsLogin,
-  shelfCountLabel,
+  mergeCatalogIds,
+  stampCatalogQueue,
   stepAction,
 } from '/src/guide.mjs'
 import {
@@ -154,6 +160,8 @@ const ICON_SHUFFLE =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l6.5-6.5M21 8l-6.5 6.5M16 21h5v-5M15 15l6 6M4 4l5 5"></path></svg>'
 const ICON_MIX =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="16" r="1.6" fill="currentColor" stroke="none"></circle><path d="M8.2 13.2a5 5 0 0 1 7.6 0M6 10.6a8 8 0 0 1 12 0"></path></svg>'
+const ICON_CHEVRON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>'
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -207,6 +215,10 @@ function quickCard(track) {
   )
 }
 
+function explicitMark(track) {
+  return track?.explicit ? '<span class="explicit-mark" title="Explícito">E</span>' : ''
+}
+
 function shelfCard(track) {
   const kind = isArtistBrowseId(track.browseId) ? 'card card-circle' : 'card'
   return catalogTag(
@@ -217,7 +229,7 @@ function shelfCard(track) {
       <span class="card-play" aria-hidden="true">${ICON_PLAY}</span>
     </span>
     <strong>${escapeHtml(shorten(track.title, 46))}</strong>
-    <span>${escapeHtml(shorten(track.artist, 34))}</span>`,
+    <span class="card-byline">${explicitMark(track)}${escapeHtml(shorten(catalogCardByline(track), 42))}</span>`,
   )
 }
 
@@ -315,19 +327,7 @@ function renderHome() {
     return
   }
   const picks = quickPicks()
-  const shelves = state.shelves
-    .map(
-      (shelf) => `<section class="shelf">
-        <div class="shelf-head">
-          <div>
-            <h2 class="section-title">${escapeHtml(shelf.title)}</h2>
-            <p class="shelf-sub">${escapeHtml(shelfCountLabel(shelf.tracks))}</p>
-          </div>
-        </div>
-        <div class="shelf-rail">${shelf.tracks.map(shelfCard).join('')}</div>
-      </section>`,
-    )
-    .join('')
+  const shelves = state.shelves.map((shelf, index) => shelfSectionHtml(shelf, index)).join('')
 
   dom.main.innerHTML = `
     <section class="hero">
@@ -335,6 +335,7 @@ function renderHome() {
     </section>
     <section class="quick-grid">${picks.map(quickCard).join('')}</section>
     ${shelves}`
+  wireShelfRails()
 }
 
 function renderSearch(query, feed) {
@@ -437,12 +438,31 @@ function refreshPlayPauseIcon() {
   dom.playPause.setAttribute('aria-label', playPauseAriaLabel(playing))
 }
 
+function paintCatalogLabel(el, text, href) {
+  el.innerHTML = catalogLabelHtml(text, href)
+}
+
+function paintDockLabels(track) {
+  const current = track || state.current
+  paintCatalogLabel(dom.title, current?.title || '—', dockAlbumHref(current))
+  paintCatalogLabel(dom.artist, current?.artist || '—', dockArtistHref(current))
+  paintCatalogLabel(
+    dom.nowPlayingTitle,
+    current?.title || dom.title.textContent,
+    dockAlbumHref(current),
+  )
+  paintCatalogLabel(
+    dom.nowPlayingArtist,
+    current?.artist || dom.artist.textContent,
+    dockArtistHref(current),
+  )
+}
+
 function refreshNowPlayingCover() {
   const src = largerCoverUrl(state.current?.thumbnail || dom.art.src)
   dom.nowPlayingArt.src = src
   dom.nowPlayingBackdrop.src = src
-  dom.nowPlayingTitle.textContent = state.current?.title || dom.title.textContent
-  dom.nowPlayingArtist.textContent = state.current?.artist || dom.artist.textContent
+  paintDockLabels(state.current)
 }
 
 function applyNowPlayingDom() {
@@ -554,15 +574,20 @@ function refreshNowPlayingView() {
   }
 }
 
+function withCatalogContext(track) {
+  const [stamped] = stampCatalogQueue([track], catalogContextFromPage(location.hash, state.album))
+  return stamped
+}
+
 async function play(track, queue) {
-  state.current = track
-  const incoming = queue?.length ? queue : [track]
-  state.queue = state.shuffle ? shuffleQueue(incoming, track.videoId) : incoming
+  const current = withCatalogContext(track)
+  state.current = current
+  const incoming = queue?.length ? queue : [current]
+  state.queue = state.shuffle ? shuffleQueue(incoming, current.videoId) : incoming
   refreshNowPlayingView()
   dom.player.hidden = false
-  dom.title.textContent = track.title || '—'
-  dom.artist.textContent = track.artist || '—'
-  dom.art.src = track.thumbnail || ''
+  paintDockLabels(current)
+  dom.art.src = current.thumbnail || ''
   refreshNowPlayingCover()
   setStatus('resolvendo áudio…')
   refreshHeart()
@@ -591,23 +616,24 @@ async function play(track, queue) {
 
     const queuedRow = state.queue.find((item) => item.videoId === track.videoId)
     const credit = lastFmCredit({
-      artist: track.artist || stream.author,
-      album: track.album,
+      artist: current.artist || stream.author,
+      album: current.album,
     })
     const durationSec = Number(stream.duration) || Number(dom.audio.duration)
-    const enriched = {
-      ...track,
-      title: stream.title || (track.title !== 'Carregando…' ? track.title : ''),
+    const enriched = withCatalogContext({
+      ...current,
+      title: stream.title || (current.title !== 'Carregando…' ? current.title : ''),
       artist: credit.artist || stream.author,
-      album: credit.album,
-      duration: track.duration || formatDuration(stream.duration),
+      album: credit.album || current.album,
+      duration: current.duration || formatDuration(stream.duration),
       durationSec,
-      thumbnail: track.thumbnail || queuedRow?.thumbnail || '',
-    }
+      thumbnail: current.thumbnail || queuedRow?.thumbnail || '',
+      albumBrowseId: current.albumBrowseId || queuedRow?.albumBrowseId,
+      artistBrowseId: current.artistBrowseId || queuedRow?.artistBrowseId,
+    })
     state.current = enriched
     refreshNowPlayingView()
-    dom.title.textContent = enriched.title
-    dom.artist.textContent = enriched.artist
+    paintDockLabels(enriched)
     dom.art.src = enriched.thumbnail || ''
     refreshNowPlayingCover()
     dom.meta.textContent = [
@@ -622,6 +648,7 @@ async function play(track, queue) {
     refreshOfflineCurrent()
     lastFm.onPlay(enriched, enriched.durationSec).catch(() => {})
     if (state.lyricsOpen) loadLyrics()
+    fillCatalogIds(track.videoId)
   } catch (error) {
     setStatus(error.message ?? 'falha ao resolver o áudio', 'error')
   }
@@ -673,11 +700,17 @@ async function loadQueue(videoId, playlistId) {
     state.queue = queue
     const row = queue.find((item) => item.videoId === videoId)
     if (!row || state.current?.videoId !== videoId) return
-    state.current = {
-      ...state.current,
-      thumbnail: state.current.thumbnail || row.thumbnail,
-      artist: state.current.artist || row.artist,
-    }
+    state.current = withCatalogContext(
+      mergeCatalogIds(
+        {
+          ...state.current,
+          thumbnail: state.current.thumbnail || row.thumbnail,
+          artist: state.current.artist || row.artist,
+        },
+        row,
+      ),
+    )
+    paintDockLabels(state.current)
     renderWatch(state.current)
     dom.art.src = state.current.thumbnail || ''
   } catch (_error) {
@@ -858,6 +891,8 @@ async function saveAlbum(browseId) {
   const tracks = albumTracksFromFeed(feed).map((track) => ({
     ...track,
     browseId,
+    albumBrowseId: track.albumBrowseId || browseId,
+    artistBrowseId: track.artistBrowseId || header?.artistBrowseId || '',
     album: track.album || header?.title || '',
     artist: track.artist || header?.artist || '',
     thumbnail: track.thumbnail || header?.thumbnail || '',
@@ -942,7 +977,11 @@ function readHomeFeed(payload) {
 }
 
 function albumQueue(feed) {
-  return albumTracksFromFeed(feed)
+  const browseId = state.album?.browseId || ''
+  return stampCatalogQueue(albumTracksFromFeed(feed), {
+    albumBrowseId: isAlbumBrowseId(browseId) ? browseId : '',
+    artistBrowseId: feed?.header?.artistBrowseId || (isArtistBrowseId(browseId) ? browseId : ''),
+  })
 }
 
 function albumPlayTarget(feed) {
@@ -950,11 +989,36 @@ function albumPlayTarget(feed) {
   return queue.find((track) => track.videoId === feed?.header?.videoId) ?? queue[0] ?? null
 }
 
+async function fillCatalogIds(videoId) {
+  if (!videoId || state.current?.videoId !== videoId) return
+  if (dockAlbumHref(state.current) && dockArtistHref(state.current)) return
+  try {
+    const queue = await api.queue(videoId)
+    if (!queue.length || state.current?.videoId !== videoId) return
+    const row = queue.find((item) => item.videoId === videoId)
+    if (!row) return
+    state.current = withCatalogContext(mergeCatalogIds(state.current, row))
+    state.queue = state.queue.map((item) =>
+      item.videoId === videoId ? mergeCatalogIds(item, row) : item,
+    )
+    paintDockLabels(state.current)
+  } catch (_error) {
+    // Search/mix still plays the seed track if next never arrives.
+  }
+}
+
 async function fillCatalogQueue(videoId, playlistId) {
   try {
     const queue = await api.queue(videoId, playlistId)
     if (!queue.length || state.current?.videoId !== videoId) return
-    state.queue = queue
+    state.queue = stampCatalogQueue(queue, {
+      albumBrowseId: state.current?.albumBrowseId,
+      artistBrowseId: state.current?.artistBrowseId,
+    })
+    const row = state.queue.find((item) => item.videoId === videoId)
+    if (!row) return
+    state.current = withCatalogContext(mergeCatalogIds(state.current, row))
+    paintDockLabels(state.current)
   } catch (_error) {
     // Shuffle/mix still plays the seed track if next never arrives.
   }
@@ -985,23 +1049,54 @@ function shelfTracksClass(shelf) {
   return shelf.layout === 'grid' ? 'shelf-grid' : 'shelf-rail'
 }
 
-function relatedShelvesHtml(shelves) {
-  return (shelves ?? [])
-    .map((shelf) => {
-      const head = shelf.title
-        ? `<div class="shelf-head">
-          <div>
-            <h2 class="section-title">${escapeHtml(shelf.title)}</h2>
-            <p class="shelf-sub">${escapeHtml(shelfCountLabel(shelf.tracks))}</p>
-          </div>
+function shelfHeaderHtml(shelf, index) {
+  const more = shelf.moreBrowseId
+    ? `<a class="shelf-more" href="${escapeHtml(guideHref(shelf.moreBrowseId))}">Mais</a>`
+    : ''
+  const arrows =
+    shelf.layout === 'grid' || (shelf.tracks?.length ?? 0) < 2
+      ? ''
+      : `<div class="shelf-arrows">
+          <button type="button" class="shelf-arrow" data-shelf-scroll="${index}" data-dir="-1" aria-label="Anterior" disabled>${ICON_CHEVRON}</button>
+          <button type="button" class="shelf-arrow" data-shelf-scroll="${index}" data-dir="1" aria-label="Próximo">${ICON_CHEVRON}</button>
         </div>`
-        : ''
-      return `<section class="shelf">
-        ${head}
-        <div class="${shelfTracksClass(shelf)}">${shelf.tracks.map(shelfCard).join('')}</div>
-      </section>`
-    })
-    .join('')
+  const controls = more || arrows ? `<div class="shelf-controls">${more}${arrows}</div>` : ''
+  if (!shelf.title && !controls) return ''
+  return `<div class="shelf-head">
+    <h2 class="section-title">${escapeHtml(shelf.title)}</h2>
+    ${controls}
+  </div>`
+}
+
+function shelfSectionHtml(shelf, index) {
+  return `<section class="shelf">
+    ${shelfHeaderHtml(shelf, index)}
+    <div class="${shelfTracksClass(shelf)}" data-shelf-index="${index}">${shelf.tracks.map(shelfCard).join('')}</div>
+  </section>`
+}
+
+function syncShelfArrows(rail) {
+  const index = rail?.dataset?.shelfIndex
+  if (index == null) return
+  const prev = dom.main.querySelector(`[data-shelf-scroll="${index}"][data-dir="-1"]`)
+  const next = dom.main.querySelector(`[data-shelf-scroll="${index}"][data-dir="1"]`)
+  if (!prev || !next) return
+  const max = rail.scrollWidth - rail.clientWidth
+  prev.disabled = rail.scrollLeft <= 8
+  next.disabled = max <= 8 || rail.scrollLeft >= max - 8
+}
+
+function wireShelfRails() {
+  for (const rail of dom.main.querySelectorAll('.shelf-rail[data-shelf-index]')) {
+    syncShelfArrows(rail)
+    if (rail.dataset.shelfWired) continue
+    rail.dataset.shelfWired = '1'
+    rail.addEventListener('scroll', () => syncShelfArrows(rail), { passive: true })
+  }
+}
+
+function relatedShelvesHtml(shelves) {
+  return (shelves ?? []).map((shelf, index) => shelfSectionHtml(shelf, index)).join('')
 }
 
 function renderBrowseChips(chips) {
@@ -1028,6 +1123,7 @@ function renderBrowsePage(browseId, feed) {
       <h1>${escapeHtml(title)}</h1>
     </section>
     ${shelves || browseEmpty(browseId, feed.message)}`
+  wireShelfRails()
 }
 
 function albumArtistLine(header) {
@@ -1068,6 +1164,7 @@ function renderAlbumPage(browseId, feed) {
       ${list}
     </section>
     ${relatedShelvesHtml(related)}`
+  wireShelfRails()
 }
 
 function renderArtistPage(browseId, feed) {
@@ -1104,6 +1201,7 @@ function renderArtistPage(browseId, feed) {
         ${relatedShelvesHtml(related)}
       </div>
     </section>`
+  wireShelfRails()
 }
 
 function renderCatalogPage(browseId, feed) {
@@ -1430,6 +1528,16 @@ function wireEvents() {
   })
 
   dom.main.addEventListener('click', (event) => {
+    const arrow = event.target.closest('[data-shelf-scroll]')
+    if (arrow) {
+      event.preventDefault()
+      const rail = dom.main.querySelector(`[data-shelf-index="${arrow.dataset.shelfScroll}"]`)
+      if (!rail) return
+      const dir = Number(arrow.dataset.dir)
+      const amount = Math.max(Math.floor(rail.clientWidth * 0.85), 192)
+      rail.scrollBy({ left: dir * amount, behavior: 'smooth' })
+      return
+    }
     if (event.target.closest('[data-retry-home]')) {
       state.homeLoaded = false
       renderHome()
@@ -1631,6 +1739,18 @@ function wireEvents() {
     if (state.nowPlayingOpen) setNowPlayingOpen(false)
     if (state.lyricsOpen) setLyricsOpen(false)
   })
+
+  function closePlayerSheets() {
+    if (state.nowPlayingOpen) setNowPlayingOpen(false)
+    if (state.lyricsOpen) setLyricsOpen(false)
+  }
+
+  for (const el of [dom.title, dom.artist, dom.nowPlayingTitle, dom.nowPlayingArtist]) {
+    el.addEventListener('click', (event) => {
+      if (!event.target.closest('a[href^="#/"]')) return
+      closePlayerSheets()
+    })
+  }
 
   dom.expand.addEventListener('click', () => {
     if (!state.current) return

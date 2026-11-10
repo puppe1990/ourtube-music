@@ -29,7 +29,7 @@ Chaves Last.fm e sessão Google ficam em `<app_config_dir>/` (`lastfm.json`,
 
 | Comando Tauri          | Endpoint                                         | Cliente     |
 | ---------------------- | ------------------------------------------------ | ----------- |
-| `music_home`           | `POST /youtubei/v1/browse` (`FEmusic_home`)      | WEB_REMIX   |
+| `music_home`           | `POST /youtubei/v1/browse` (`FEmusic_home` + até 4 `{continuation}`) | WEB_REMIX   |
 | `music_browse`         | `POST /youtubei/v1/browse` (Explorar/Biblioteca) | WEB_REMIX   |
 | `music_search`         | `POST /youtubei/v1/search`                       | WEB_REMIX   |
 | `music_queue`          | `POST /youtubei/v1/next`                         | WEB_REMIX   |
@@ -42,6 +42,10 @@ Chaves Last.fm e sessão Google ficam em `<app_config_dir>/` (`lastfm.json`,
 | `offline_save`         | ANDROID `/player` + write `offline/media/*.m4a`  | ANDROID     |
 | `offline_remove`       | drop one file + index row                        | —           |
 | `offline_remove_album` | drop every track with that `MPREb_`              | —           |
+
+A home oficial só manda Lançamentos numa continuation. `music_home` segue até 4
+páginas `{continuation}` (Rust e o preview). Mais aponta para
+`FEmusic_new_releases_albums`. `music_browse` não segue continuation.
 
 WEB_REMIX responde `UNPLAYABLE` no `/player`; o cliente ANDROID devolve URL
 direta do `googlevideo.com` no itag 18 progressivo (`ftypmp42`, sondado em

@@ -45,6 +45,16 @@ test('shelf cards keep a fixed column width so the rail cannot stack them', () =
   assert.match(body, /width:\s*168px/)
 })
 
+test('carousel Mais and arrow controls match the YTM Lançamentos header', () => {
+  const more = cssRule('.shelf-more')
+  const arrow = cssRule('.shelf-arrow')
+  const mark = cssRule('.explicit-mark')
+
+  assert.match(more, /border-radius:\s*999px/)
+  assert.match(arrow, /border-radius:\s*50%/)
+  assert.match(mark, /border:/)
+})
+
 test('brand mark is a crimson tile with a white play glyph', () => {
   const mark = cssRule('.brand-mark')
 
@@ -61,6 +71,16 @@ test('rail items keep a 6px pip and the current one is crimson', () => {
   assert.match(pip, /height:\s*6px/)
   assert.match(current, /background:\s*var\(--red\)/)
   assert.match(current, /box-shadow:\s*0 0 0 4px var\(--red-soft\)/)
+})
+
+test('dock and now-playing names look like text until hover', () => {
+  for (const selector of ['.dock-text a', '.now-playing-copy a']) {
+    const body = cssRule(selector)
+    assert.match(body, /color:\s*inherit/)
+    assert.match(body, /text-decoration:\s*none/)
+  }
+  assert.match(cssRule('.dock-text a:hover'), /text-decoration:\s*underline/)
+  assert.match(cssRule('.now-playing-copy a:hover'), /text-decoration:\s*underline/)
 })
 
 test('vertical scrollbars are crimson with a transparent track', () => {

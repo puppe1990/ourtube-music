@@ -206,6 +206,8 @@ function emptyItem() {
     videoId: '',
     playlistId: '',
     browseId: '',
+    albumBrowseId: '',
+    artistBrowseId: '',
     title: '',
     artist: '',
     album: '',
@@ -215,6 +217,28 @@ function emptyItem() {
     subtitle: '',
     resultType: '',
   }
+}
+
+function bylineCatalogIds(node) {
+  let artistBrowseId = ''
+  let albumBrowseId = ''
+  for (const run of node?.runs ?? []) {
+    const browseId = run?.navigationEndpoint?.browseEndpoint?.browseId ?? ''
+    if (!artistBrowseId && browseId.startsWith('UC')) artistBrowseId = browseId
+    if (!albumBrowseId && browseId.startsWith('MPREb_')) albumBrowseId = browseId
+  }
+  return { artistBrowseId, albumBrowseId }
+}
+
+function columnCatalogIds(node) {
+  let artistBrowseId = ''
+  let albumBrowseId = ''
+  for (const column of node?.flexColumns ?? []) {
+    const ids = bylineCatalogIds(column?.musicResponsiveListItemFlexColumnRenderer?.text)
+    if (!artistBrowseId) artistBrowseId = ids.artistBrowseId
+    if (!albumBrowseId) albumBrowseId = ids.albumBrowseId
+  }
+  return { artistBrowseId, albumBrowseId }
 }
 
 function searchItem(node) {
@@ -232,11 +256,16 @@ function searchItem(node) {
   const resultType = resultTypeFrom(pageType, watchVideoType(play), subtitle)
   const named = resultType === 'artist' || resultType === 'profile'
   const { artist, album } = named ? { artist: '', album: '' } : bylineFromTexts(title, texts)
+  const { artistBrowseId, albumBrowseId } = named
+    ? { artistBrowseId: '', albumBrowseId: '' }
+    : columnCatalogIds(node)
   return {
     ...emptyItem(),
     videoId,
     playlistId,
     browseId,
+    albumBrowseId,
+    artistBrowseId,
     title,
     artist,
     album,

@@ -17,6 +17,7 @@ use crate::innertube::parsers::{
 };
 
 pub const HOME_BROWSE_IDS: [&str; 2] = ["FEmusic_home", "FEmusic_explore"];
+pub const HOME_CONTINUATION_PAGES: usize = 4;
 
 /// Only /player needs the Android client (itag 18); browsing stays WEB_REMIX
 /// so the payloads match the ones the music web app renders.
@@ -201,7 +202,7 @@ impl MusicClient {
                 body["params"] = json!(params);
             }
             match self.browse(body) {
-                Ok(feed) if !feed.shelves.is_empty() => return Ok(feed),
+                Ok(feed) if !feed.shelves.is_empty() => return self.follow_continuations(feed),
                 Ok(_) => continue,
                 Err(error) => last_error = Some(error),
             }
@@ -210,6 +211,31 @@ impl MusicClient {
             Some(error) => Err(error),
             None => Ok(HomeFeed::default()),
         }
+    }
+
+    /// Official YTM home loads later carousels (Lançamentos, …) via
+    /// `/browse` continuation tokens, not the first `FEmusic_home` page.
+    fn follow_continuations(&self, mut feed: HomeFeed) -> Result<HomeFeed, String> {
+        let mut pages = 0;
+        while !feed.continuation.is_empty() && pages < HOME_CONTINUATION_PAGES {
+            let token = feed.continuation.clone();
+            pages += 1;
+            match self.browse(json!({ "continuation": token })) {
+                Ok(next) => {
+                    feed.shelves.extend(next.shelves);
+                    feed.continuation = if next.continuation == token {
+                        String::new()
+                    } else {
+                        next.continuation
+                    };
+                }
+                Err(_) => {
+                    feed.continuation.clear();
+                    break;
+                }
+            }
+        }
+        Ok(feed)
     }
 
     /// One browseId, no home→explore fallback. Explorar and Biblioteca are

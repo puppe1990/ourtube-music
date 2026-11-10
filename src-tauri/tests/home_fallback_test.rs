@@ -10,6 +10,14 @@ fn empty_home_payload() -> &'static str {
     r#"{"contents":{"singleColumnBrowseResultsRenderer":{"tabs":[]}}}"#
 }
 
+fn home_with_continuation_payload() -> &'static str {
+    r#"{"contents":{"singleColumnBrowseResultsRenderer":{"tabs":[{"tabRenderer":{"content":{"sectionListRenderer":{"contents":[{"musicCarouselShelfRenderer":{"header":{"musicCarouselShelfBasicHeaderRenderer":{"title":{"runs":[{"text":"Ouvir de novo"}]}}},"contents":[{"musicTwoRowItemRenderer":{"title":{"runs":[{"text":"Mix"}]},"subtitle":{"runs":[{"text":"Artist"}]},"thumbnailRenderer":{"musicThumbnailRenderer":{"thumbnail":{"thumbnails":[{"url":"https://img/one"}]}}},"navigationEndpoint":{"watchEndpoint":{"videoId":"vid-1"}}}}]}}],"continuations":[{"nextContinuationData":{"continuation":"home-token-1"}}]}}}}]}}}"#
+}
+
+fn lancamentos_continuation_payload() -> &'static str {
+    r#"{"onResponseReceivedActions":[{"appendContinuationItemsAction":{"continuationItems":[{"musicCarouselShelfRenderer":{"header":{"musicCarouselShelfBasicHeaderRenderer":{"title":{"runs":[{"text":"Lançamentos"}]},"moreContentButton":{"buttonRenderer":{"text":{"runs":[{"text":"Mais"}]},"navigationEndpoint":{"browseEndpoint":{"browseId":"FEmusic_new_releases_albums"}}}}}},"contents":[{"musicTwoRowItemRenderer":{"title":{"runs":[{"text":"Into Despair"}]},"subtitle":{"runs":[{"text":"Álbum"},{"text":" • "},{"text":"Distant"}]},"thumbnailRenderer":{"musicThumbnailRenderer":{"thumbnail":{"thumbnails":[{"url":"https://img/rel"}]}}},"navigationEndpoint":{"browseEndpoint":{"browseId":"MPREb_rel"}}}}]}}]}}]}"#
+}
+
 fn explore_payload() -> &'static str {
     r#"{"contents":{"singleColumnBrowseResultsRenderer":{"tabs":[{"tabRenderer":{"content":{"sectionListRenderer":{"contents":[{"musicCarouselShelfRenderer":{"header":{"musicCarouselShelfBasicHeaderRenderer":{"title":{"runs":[{"text":"Explore"}]}}},"contents":[{"musicTwoRowItemRenderer":{"title":{"runs":[{"text":"Track"}]},"subtitle":{"runs":[{"text":"Artist"}]},"thumbnailRenderer":{"musicThumbnailRenderer":{"thumbnail":{"thumbnails":[{"url":"https://img/one"}]}}},"navigationEndpoint":{"watchEndpoint":{"videoId":"vid-1"}}}}]}}]}}}}]}}}"#
 }
@@ -94,6 +102,43 @@ fn home_falls_back_to_explore_when_the_anonymous_feed_is_empty() {
     assert_eq!(feed.shelves.len(), 1);
     assert_eq!(feed.shelves[0].title, "Explore");
     assert_eq!(feed.shelves[0].tracks[0].video_id, "vid-1");
+}
+
+#[test]
+fn home_follows_continuation_to_merge_the_lancamentos_shelf() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind continuation server");
+    let address = listener.local_addr().expect("local addr");
+    let hits = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&hits);
+
+    thread::spawn(move || {
+        for connection in listener.incoming().flatten() {
+            let mut stream = connection;
+            read_request(&mut stream);
+            let call = counter.fetch_add(1, Ordering::SeqCst);
+            let body = if call == 0 {
+                home_with_continuation_payload()
+            } else {
+                lancamentos_continuation_payload()
+            };
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+
+    let client = MusicClient::with_base(&format!("http://{address}"));
+    let feed = client.home(None).expect("home with continuation");
+
+    assert_eq!(hits.load(Ordering::SeqCst), 2, "want home then continuation");
+    assert_eq!(feed.shelves.len(), 2);
+    assert_eq!(feed.shelves[0].title, "Ouvir de novo");
+    assert_eq!(feed.shelves[1].title, "Lançamentos");
+    assert_eq!(feed.shelves[1].more_browse_id, "FEmusic_new_releases_albums");
+    assert_eq!(feed.shelves[1].tracks[0].title, "Into Despair");
 }
 
 #[test]

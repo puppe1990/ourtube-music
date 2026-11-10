@@ -194,3 +194,71 @@ fn search_feed_skips_empty_reset_chip() {
     assert_eq!(feed.items.len(), 1);
     assert_eq!(feed.items[0].title, title);
 }
+
+fn linked_run(text: &str, browse_id: &str) -> Value {
+    json!({
+        "text": text,
+        "navigationEndpoint": { "browseEndpoint": { "browseId": browse_id } }
+    })
+}
+
+fn linked_song_row(
+    video_id: &str,
+    title: &str,
+    artist: &str,
+    album: &str,
+    artist_id: &str,
+    album_id: &str,
+) -> Value {
+    json!({
+        "musicResponsiveListItemRenderer": {
+            "thumbnail": { "musicThumbnailRenderer": { "thumbnail": thumbs(&["https://img/song"]) } },
+            "flexColumns": [
+                { "musicResponsiveListItemFlexColumnRenderer": { "text": runs(&[title]) } },
+                { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [
+                    { "text": "Música • " },
+                    linked_run(artist, artist_id),
+                    { "text": " • " },
+                    linked_run(album, album_id)
+                ] } } },
+                { "musicResponsiveListItemFlexColumnRenderer": { "text": runs(&["Tocou 1 mi vezes"]) } }
+            ],
+            "playlistItemData": { "videoId": video_id },
+            "overlay": { "musicItemThumbnailOverlayRenderer": { "content": {
+                "musicPlayButtonRenderer": { "playNavigationEndpoint": { "watchEndpoint": {
+                    "videoId": video_id,
+                    "watchEndpointMusicSupportedConfigs": {
+                        "watchEndpointMusicConfig": { "musicVideoType": "MUSIC_VIDEO_TYPE_ATV" }
+                    }
+                } } }
+            } } }
+        }
+    })
+}
+
+#[test]
+fn search_song_rows_keep_album_and_artist_browse_ids_from_byline_runs() {
+    let title: String = Word().fake();
+    let artist: String = Name().fake();
+    let album: String = Word().fake();
+    let video_id = "exkCfsrNh5Q";
+    let artist_id = "UCWtLCpuYDZOsurj1FdkXGnw";
+    let album_id = "MPREb_genesisAlbum";
+    let payload = json!({
+        "contents": { "tabbedSearchResultsRenderer": { "tabs": [ { "tabRenderer": {
+            "selected": true,
+            "content": { "sectionListRenderer": { "contents": [
+                item_section(linked_song_row(&video_id, &title, &artist, &album, artist_id, album_id))
+            ] } }
+        } } ] } }
+    });
+
+    let feed = parse_search_feed(&payload).expect("parse linked search song");
+    let track = &feed.items[0];
+    assert_eq!(track.video_id, video_id);
+    assert_eq!(track.artist, artist);
+    assert_eq!(track.album, album);
+    assert_eq!(track.artist_browse_id, artist_id);
+    assert_eq!(track.album_browse_id, album_id);
+    assert_eq!(track.browse_id, "");
+}

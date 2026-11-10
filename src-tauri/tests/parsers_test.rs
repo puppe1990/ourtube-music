@@ -235,6 +235,67 @@ fn home_shelves_keep_album_cards_from_the_play_overlay() {
 }
 
 #[test]
+fn home_carousel_keeps_mais_browse_id_explicit_badge_and_artist_catalog_id() {
+    let title: String = Sentence(1..3).fake();
+    let artist: String = Name().fake();
+    let suffix: String = Name().fake();
+    let album_id = format!("MPREb_{suffix}");
+    let artist_id = format!("UC{suffix}");
+    let more_id = "FEmusic_new_releases_albums";
+
+    let payload = json!({ "contents": { "sectionListRenderer": { "contents": [ { "musicCarouselShelfRenderer": {
+        "header": { "musicCarouselShelfBasicHeaderRenderer": {
+            "title": runs(&["Lançamentos"]),
+            "moreContentButton": { "buttonRenderer": {
+                "text": runs(&["Mais"]),
+                "navigationEndpoint": { "browseEndpoint": { "browseId": more_id } }
+            } }
+        } },
+        "contents": [ { "musicTwoRowItemRenderer": {
+            "title": runs(&[&title]),
+            "subtitle": { "runs": [
+                { "text": "Álbum" },
+                { "text": " • " },
+                { "text": artist, "navigationEndpoint": { "browseEndpoint": { "browseId": artist_id } } }
+            ] },
+            "subtitleBadges": [ { "musicInlineBadgeRenderer": {
+                "icon": { "iconType": "MUSIC_EXPLICIT_BADGE" },
+                "accessibilityData": { "accessibilityData": { "label": "Explícito" } }
+            } } ],
+            "thumbnailRenderer": { "musicThumbnailRenderer": { "thumbnail": thumbnails(&["https://img/rel"]) } },
+            "navigationEndpoint": { "browseEndpoint": { "browseId": album_id } }
+        } } ]
+    } } ] } } });
+
+    let feed = parse_home_feed(&payload).expect("parse lançamentos carousel");
+    let shelf = &feed.shelves[0];
+    let track = &shelf.tracks[0];
+
+    assert_eq!(shelf.title, "Lançamentos");
+    assert_eq!(shelf.more_browse_id, more_id);
+    assert_eq!(track.title, title);
+    assert_eq!(track.album, "Álbum");
+    assert_eq!(track.artist, artist);
+    assert_eq!(track.browse_id, album_id);
+    assert_eq!(track.album_browse_id, album_id);
+    assert_eq!(track.artist_browse_id, artist_id);
+    assert!(track.explicit);
+}
+
+#[test]
+fn home_continuation_falls_back_to_continuation_command_token() {
+    let token: String = Name().fake();
+    let payload = json!({
+        "onResponseReceivedActions": [ { "appendContinuationItemsAction": { "continuationItems": [
+            { "continuationItemRenderer": { "continuationEndpoint": { "continuationCommand": { "token": token } } } }
+        ] } } ]
+    });
+
+    let feed = parse_home_feed(&payload).expect("parse continuation command");
+    assert_eq!(feed.continuation, token);
+}
+
+#[test]
 fn home_feed_reads_mood_chips_and_the_continuation_token() {
     let chip: String = Sentence(1..2).fake();
     let params: String = Name().fake();
@@ -425,6 +486,47 @@ fn queue_splits_artist_and_album_out_of_a_youtube_byline() {
     assert_eq!(track.title, title);
     assert_eq!(track.artist, artist);
     assert_eq!(track.album, album);
+}
+
+fn linked_run(text: &str, browse_id: &str) -> Value {
+    json!({
+        "text": text,
+        "navigationEndpoint": { "browseEndpoint": { "browseId": browse_id } }
+    })
+}
+
+#[test]
+fn queue_reads_album_and_artist_browse_ids_from_byline_runs() {
+    let artist: String = Name().fake();
+    let album: String = Sentence(1..3).fake();
+    let title: String = Sentence(1..3).fake();
+    let video_id: String = Name().fake();
+    let artist_id = format!("UC{}", Name().fake::<String>());
+    let album_id = format!("MPREb_{}", Name().fake::<String>());
+    let views = format!("{} mil visualizações", 20 + (title.len() % 800));
+
+    let payload = json!({ "contents": { "playlistPanelRenderer": { "contents": [
+        { "playlistPanelVideoRenderer": {
+            "videoId": video_id,
+            "title": runs(&[&title]),
+            "longBylineText": { "runs": [
+                linked_run(&artist, &artist_id),
+                { "text": " • " },
+                linked_run(&album, &album_id),
+                { "text": " • " },
+                { "text": views }
+            ] },
+            "lengthText": runs(&["3:41"]),
+            "thumbnail": thumbnails(&["https://img/q"])
+        } }
+    ] } } });
+
+    let track = &parse_queue(&payload).expect("parse queue")[0];
+    assert_eq!(track.artist, artist);
+    assert_eq!(track.album, album);
+    assert_eq!(track.artist_browse_id, artist_id);
+    assert_eq!(track.album_browse_id, album_id);
+    assert_eq!(track.browse_id, "");
 }
 
 #[test]
@@ -838,6 +940,39 @@ fn album_header_reads_the_artist_channel_browse_id() {
     assert_eq!(header.artist, artist);
     assert_eq!(header.artist_browse_id, artist_id);
     assert_eq!(header.page_type, "album");
+}
+
+#[test]
+fn album_tracks_inherit_the_artist_channel_browse_id() {
+    let album: String = Sentence(1..3).fake();
+    let artist: String = Name().fake();
+    let artist_id = format!("UC{}", Name().fake::<String>());
+    let video_id: String = Name().fake();
+    let title: String = Sentence(1..3).fake();
+
+    let payload = json!({
+        "contents": {
+            "musicResponsiveHeaderRenderer": {
+                "title": runs(&[&album]),
+                "straplineTextOne": artist_strapline(&artist, &artist_id)
+            },
+            "musicShelfRenderer": {
+                "contents": [{ "musicResponsiveListItemRenderer": {
+                    "flexColumns": [
+                        { "musicResponsiveListItemFlexColumnRenderer": { "text": runs(&[&title]) } }
+                    ],
+                    "playlistItemData": { "videoId": video_id }
+                } }]
+            }
+        }
+    });
+
+    let feed = parse_home_feed(&payload).expect("parse album");
+    let track = &feed.shelves[0].tracks[0];
+    assert_eq!(track.title, title);
+    assert_eq!(track.artist, artist);
+    assert_eq!(track.artist_browse_id, artist_id);
+    assert_eq!(track.browse_id, "");
 }
 
 #[test]
