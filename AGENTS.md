@@ -27,21 +27,21 @@ Chaves Last.fm e sessão Google ficam em `<app_config_dir>/` (`lastfm.json`,
 
 ## Endpoints mapeados (fonte: captura decifrada)
 
-| Comando Tauri          | Endpoint                                         | Cliente     |
-| ---------------------- | ------------------------------------------------ | ----------- |
+| Comando Tauri          | Endpoint                                                             | Cliente     |
+| ---------------------- | -------------------------------------------------------------------- | ----------- |
 | `music_home`           | `POST /youtubei/v1/browse` (`FEmusic_home` + até 4 `{continuation}`) | WEB_REMIX   |
-| `music_browse`         | `POST /youtubei/v1/browse` (Explorar/Biblioteca) | WEB_REMIX   |
-| `music_search`         | `POST /youtubei/v1/search`                       | WEB_REMIX   |
-| `music_queue`          | `POST /youtubei/v1/next`                         | WEB_REMIX   |
-| `music_lyrics`         | `/next` → `MPLYt_*` then browse; LRCLib for cues | WEB_REMIX   |
-| `music_stream`         | `POST /youtubei/v1/player`                       | **ANDROID** |
-| `music_suggestions`    | `POST /youtubei/v1/music/get_search_suggestions` | WEB_REMIX   |
-| `music_guide`          | `POST /youtubei/v1/guide`                        | WEB_REMIX   |
-| `music_account`        | `POST /youtubei/v1/account/account_menu`         | WEB_REMIX   |
-| `offline_list`         | `app_config_dir/offline/index.json`              | —           |
-| `offline_save`         | ANDROID `/player` + write `offline/media/*.m4a`  | ANDROID     |
-| `offline_remove`       | drop one file + index row                        | —           |
-| `offline_remove_album` | drop every track with that `MPREb_`              | —           |
+| `music_browse`         | `POST /youtubei/v1/browse` (Explorar/Biblioteca)                     | WEB_REMIX   |
+| `music_search`         | `POST /youtubei/v1/search`                                           | WEB_REMIX   |
+| `music_queue`          | `POST /youtubei/v1/next`                                             | WEB_REMIX   |
+| `music_lyrics`         | `/next` → `MPLYt_*` then browse; LRCLib for cues                     | WEB_REMIX   |
+| `music_stream`         | `POST /youtubei/v1/player`                                           | **ANDROID** |
+| `music_suggestions`    | `POST /youtubei/v1/music/get_search_suggestions`                     | WEB_REMIX   |
+| `music_guide`          | `POST /youtubei/v1/guide`                                            | WEB_REMIX   |
+| `music_account`        | `POST /youtubei/v1/account/account_menu`                             | WEB_REMIX   |
+| `offline_list`         | `app_config_dir/offline/index.json`                                  | —           |
+| `offline_save`         | ANDROID `/player` + write `offline/media/*.m4a`                      | ANDROID     |
+| `offline_remove`       | drop one file + index row                                            | —           |
+| `offline_remove_album` | drop every track with that `MPREb_`                                  | —           |
 
 A home oficial só manda Lançamentos numa continuation. `music_home` segue até 4
 páginas `{continuation}` (Rust e o preview). Mais aponta para
